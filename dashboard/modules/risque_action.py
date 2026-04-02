@@ -189,12 +189,11 @@ def _build_concentration_table(
       - Delta_VM (M€)
       - Delta_VM_pct (%)
       - Tendance (fonction trend)
-      - Poids (%) à la date fin
 
     Si top_n est fourni, on limite aux top_n plus gros VM_FIN, puis on ajoute une ligne TOTAL.
     Sinon, on garde toutes les lignes + TOTAL.
 
-    Retourne un DataFrame prêt pour mise en forme (Libellé, VM_DEBUT, VM_FIN, Delta_VM, Delta_VM_pct, Tendance, Poids_portefeuille).
+    Retourne un DataFrame prêt pour mise en forme (Libellé, VM_DEBUT, VM_FIN, Delta_VM, Delta_VM_pct, Tendance).
     """
     # Filtrage aux deux dates
     dff = dff.copy()
@@ -213,10 +212,9 @@ def _build_concentration_table(
             "Libellé", 
             "VM_DEBUT", 
             "VM_FIN", 
-            "Delta_VM", 
-            "Delta_VM_pct", 
-            "Tendance", 
-            "Poids_portefeuille",
+            "Delta_VM",
+            "Delta_VM_pct",
+            "Tendance",
             "LIBELLE",
             "SOUS_SECTEUR_EPS",
             ]
@@ -292,12 +290,7 @@ def _build_concentration_table(
         )
         res = res.drop(columns=[grp])
 
-    # Poids au portefeuille à d1
     total_vm_fin = float(res["VM_FIN"].sum())
-    if total_vm_fin != 0:
-        res["Poids_portefeuille"] = res["VM_FIN"] / total_vm_fin * 100.0
-    else:
-        res["Poids_portefeuille"] = 0.0
 
     # Passage en M€ et % pour l'affichage
     view = res.copy()
@@ -324,7 +317,6 @@ def _build_concentration_table(
                 "Delta_VM": a_delta,
                 "Delta_VM_pct": a_pct,
                 "Tendance": trend(a_pct / 100.0 if pd.notna(a_pct) else np.nan),
-                "Poids_portefeuille": autres["Poids_portefeuille"].sum(),
             }])
             view = pd.concat([top, autres_row], ignore_index=True)
         else:
@@ -346,7 +338,6 @@ def _build_concentration_table(
             if res["VM_DEBUT"].sum() != 0
             else np.nan
         ),
-        "Poids_portefeuille": 100.0 if total_vm_fin > 0 else 0.0,
     }])
 
     view = pd.concat([view, total_row], ignore_index=True)
@@ -412,7 +403,6 @@ def build_risque_action_issuer_section(
         "VM_FIN": "Valeur de marché (M€)",
         "Delta_VM": "Δ VM (M€)",
         "Delta_VM_pct": "Δ VM (%)",
-        "Poids_portefeuille": "Poids portefeuille (%)",
     })
 
     cols_order = [
@@ -423,7 +413,6 @@ def build_risque_action_issuer_section(
         "Tendance",
         "Alloc (%)",
         "Δ Alloc (%)",
-        "Poids portefeuille (%)",
     ]
     df_aff = df_aff[[c for c in cols_order if c in df_aff.columns]]
 
@@ -489,7 +478,6 @@ def build_risque_action_geo_section(
         "VM_FIN": "Valeur de marché (M€)",
         "Delta_VM": "Δ VM (M€)",
         "Delta_VM_pct": "Δ VM (%)",
-        "Poids_portefeuille": "Poids portefeuille (%)",
     })
     df_aff_geo = df_aff_geo[
         [c for c in [
@@ -500,7 +488,6 @@ def build_risque_action_geo_section(
             "Tendance",
             "Alloc (%)",
             "Δ Alloc (%)",
-            "Poids portefeuille (%)",
         ] if c in df_aff_geo.columns]
     ]
 
@@ -582,7 +569,7 @@ def build_risque_action_geo_section(
         locationmode="ISO-3",
         size="VM_SIZE",
         text="PAYS_ISO_3",
-        custom_data=["Pays", "VM_FIN", "Poids_portefeuille"],
+        custom_data=["Pays", "VM_FIN"],
         size_max=40,
     )
 
@@ -593,8 +580,7 @@ def build_risque_action_geo_section(
         textfont=dict(family="Arial Black", size=10, color="white", weight=700),
         hovertemplate=(
             "<b>%{customdata[0]}</b><br>"
-            "<b>VM : %{customdata[1]:,.1f} M€</b><br>"
-            "<b>Poids portefeuille : %{customdata[2]:.2f} %</b><extra></extra>"
+            "<b>VM : %{customdata[1]:,.1f} M€</b><extra></extra>"
         ),
     )
 
@@ -647,7 +633,6 @@ def build_risque_action_sector_section(
         "VM_FIN": "Valeur de marché (M€)",
         "Delta_VM": "Δ VM (M€)",
         "Delta_VM_pct": "Δ VM (%)",
-        "Poids_portefeuille": "Poids portefeuille (%)",
     })
     df_aff_sect = df_aff_sect[
         [c for c in [
@@ -658,7 +643,6 @@ def build_risque_action_sector_section(
             "Tendance",
             "Alloc (%)",
             "Δ Alloc (%)",
-            "Poids portefeuille (%)",
         ] if c in df_aff_sect.columns]
     ]
 
@@ -720,7 +704,18 @@ def build_risque_action_sector_section(
 
     return df_aff_sect, fig_treemap_sect
 
+_CSS_TABLE_HEADER = """
+<style>
+div[data-testid="stDataFrame"] div[role="columnheader"] {
+    background-color: #714A80 !important;
+    color: white !important;
+    font-weight: bold !important;
+}
+</style>
+"""
+
 def render_risque_action_tab(df_selection: pd.DataFrame, date_debut, date_fin):
+    st.markdown(_CSS_TABLE_HEADER, unsafe_allow_html=True)
     st.subheader("Risque Action")
 
     # Préparation base

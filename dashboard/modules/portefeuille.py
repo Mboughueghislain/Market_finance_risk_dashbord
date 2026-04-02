@@ -794,7 +794,7 @@ def render_portefeuille_tab(df_selection: pd.DataFrame, use_transpa: bool, date_
     # TABLEAU DÉTAIL PAR TITRE
     # ======================================================
     st.markdown("---")
-    show_detail = st.checkbox("Afficher le détail par titre", value=False)
+    show_detail = st.toggle("Afficher le détail par titre", value=False)
     if show_detail:
 
         detail_grp = [CLASS_COL, SUBCLASS_COL, "ID", "LIBELLE"]
@@ -871,8 +871,36 @@ def render_portefeuille_tab(df_selection: pd.DataFrame, use_transpa: bool, date_
             aff_det = pd.concat([aff_det_data, aff_det_total], ignore_index=True)
 
 
-            styler_det = apply_common_table_styles(aff_det)
-            n_det = len(aff_det)
+            # --- Filtres ---
+            mask_total_det = aff_det.apply(lambda r: "TOTAL" in r.astype(str).values, axis=1)
+            aff_corps_det  = aff_det[~mask_total_det]
+            aff_total_det  = aff_det[mask_total_det]
+
+            fcol1, fcol2 = st.columns(2)
+
+            with fcol1:
+                if "Libellé" in aff_corps_det.columns:
+                    search_lib = st.text_input("Libellé (recherche)", value="", key="det_pf_lib")
+                else:
+                    search_lib = ""
+            with fcol2:
+                if "ID" in aff_corps_det.columns:
+                    search_id = st.text_input("ID (recherche)", value="", key="det_pf_id")
+                else:
+                    search_id = ""
+
+            # Application des filtres
+            filtered_det = aff_corps_det.copy()
+            if search_lib and "Libellé" in filtered_det.columns:
+                filtered_det = filtered_det[filtered_det["Libellé"].astype(str).str.contains(search_lib, case=False, na=False)]
+            if search_id and "ID" in filtered_det.columns:
+                filtered_det = filtered_det[filtered_det["ID"].astype(str).str.contains(search_id, case=False, na=False)]
+
+            aff_det_filtered = pd.concat([filtered_det, aff_total_det], ignore_index=True)
+
+            styler_det = apply_common_table_styles(aff_det_filtered)
+            st.markdown("**Détail par titre**")
+            n_det = len(aff_det_filtered)
             st.dataframe(
                 styler_det,
                 use_container_width=True,

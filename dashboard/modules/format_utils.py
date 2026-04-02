@@ -282,17 +282,13 @@ def make_style_variation_and_total(
 
         # --- TOTAL ---
         is_total = pd.Series(False, index=df.index)
-        # colonnes spécifiquement passées (si elles existent)
-        cols_to_check = [c for c in total_cols if c in df.columns] if total_cols else []
-        if not cols_to_check:
-            cols_to_check = [
-                c for c in df.columns
-                if df[c].dtype == "object" or str(df[c].dtype).startswith("string")
-                ]
-        for c in cols_to_check:
-            is_total = is_total | (
-                df[c].astype(str).str.strip().str.upper().eq(str(total_label).strip().upper())
+        for c in df.columns:
+            try:
+                is_total |= df[c].astype(str).str.strip().str.upper().eq(
+                    str(total_label).strip().upper()
                 )
+            except Exception:
+                pass
 
         GREEN = "#2ca02c"; RED = "#d62728"; YELLOW = "#bcbd22"
         PURPLE_SOFT = "#714A80"

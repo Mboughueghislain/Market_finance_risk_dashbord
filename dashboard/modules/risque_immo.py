@@ -227,7 +227,18 @@ def build_risque_immo_section(
 # 2) Fonction Streamlit : utilise le builder et gère l’affichage
 # ======================================================================
 
+_CSS_TABLE_HEADER = """
+<style>
+div[data-testid="stDataFrame"] div[role="columnheader"] {
+    background-color: #714A80 !important;
+    color: white !important;
+    font-weight: bold !important;
+}
+</style>
+"""
+
 def render_risque_immo_tab(df_selection: pd.DataFrame, date_debut, date_fin):
+    st.markdown(_CSS_TABLE_HEADER, unsafe_allow_html=True)
     """
     Onglet Risque Immobilier :
     - filtre RSQ_FIN_IMMO == 1

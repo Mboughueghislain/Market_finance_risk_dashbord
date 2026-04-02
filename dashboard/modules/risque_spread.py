@@ -558,7 +558,9 @@ def build_spread_global_section(
                         "<extra></extra>"
                     ),
                 )
-                fig_treemap.update_layout(margin=dict(t=30, l=10, r=10, b=10))
+                fig_treemap.update_layout(
+                    margin=dict(t=30, l=10, r=10, b=10),
+                )
 
     return d0_ts, d1_ts, view_final, fig_scatter, fig_treemap
 
@@ -930,8 +932,8 @@ def render_risque_spread_tab(df_selection: pd.DataFrame, date_debut, date_fin):
 
     # -------- Treemap global --------
     if fig_treemap_global is not None:
-        st.markdown("**Répartition par Type d'émetteur / Rating / Titre**")
-        st.plotly_chart(fig_treemap_global, use_container_width=True, key="spread_treemap_global")
+        st.markdown(f"**Répartition par {choix_dim_affichage} / Notation / Titre**")
+        st.plotly_chart(fig_treemap_global, use_container_width=True, key=f"spread_treemap_{dim_col}")
 
     st.markdown("---")
     
@@ -1064,6 +1066,158 @@ def render_risque_spread_tab(df_selection: pd.DataFrame, date_debut, date_fin):
                 st.info("Aucune donnée exploitable pour construire la treemap corporate.")
             else:
                 st.plotly_chart(fig_conc, use_container_width=True)
+
+    # ======================================================
+    # TABLEAU DÉTAIL PAR TITRE
+    # ======================================================
+    st.markdown("---")
+    show_detail_spread = st.toggle("Afficher le détail par titre", value=False, key="spread_detail_toggle")
+    if show_detail_spread:
+        id_col      = "ID"      if "ID"      in dff.columns else None
+        libelle_col = "LIBELLE" if "LIBELLE" in dff.columns else None
+
+        grp_det = [dim_col, "NOTATION"]
+        if id_col:
+            grp_det.append(id_col)
+        if libelle_col:
+            grp_det.append(libelle_col)
+
+        dff_d1 = dff[dff["DATE_TRANSPA"] == d1].copy()
+        dff_d0 = dff[dff["DATE_TRANSPA"] == d0].copy()
+
+        fin_det = (
+            dff_d1.groupby(grp_det, dropna=False)["VM_INIT"].sum().rename("VM_FIN")
+        )
+        deb_det = (
+            dff_d0.groupby(grp_det, dropna=False)["VM_INIT"].sum().rename("VM_DEBUT")
+        )
+        spread_det = (
+            dff_d1.groupby(grp_det, dropna=False)
+            .apply(weighted_spread)
+            .rename("Spread")
+        )
+
+        res_det = (
+            pd.concat([deb_det, fin_det, spread_det], axis=1)
+            .fillna(0)
+            .reset_index()
+        )
+        res_det = res_det[res_det["VM_FIN"] != 0]
+
+        res_det["Delta_VM"]     = res_det["VM_FIN"] - res_det["VM_DEBUT"]
+        res_det["Delta_VM_pct"] = np.where(
+            res_det["VM_DEBUT"] != 0,
+            res_det["Delta_VM"] / res_det["VM_DEBUT"],
+            np.nan,
+        )
+        res_det["Tendance"] = res_det["Delta_VM_pct"].apply(trend)
+
+        for c in ["VM_FIN", "VM_DEBUT", "Delta_VM"]:
+            res_det[c] = res_det[c] / 1e6
+        res_det["Delta_VM_pct"] = res_det["Delta_VM_pct"] * 100
+        res_det = add_alloc_columns(res_det, vm_fin_col="VM_FIN", delta_vm_col="Delta_VM")
+
+        # Ligne TOTAL
+        t_deb   = res_det["VM_FIN"].sum() - res_det["Delta_VM"].sum()
+        t_fin   = res_det["VM_FIN"].sum()
+        t_delta = res_det["Delta_VM"].sum()
+        t_pct   = (t_delta / t_deb * 100) if t_deb != 0 else np.nan
+        total_det = {dim_col: "TOTAL", "NOTATION": "", "Delta_VM": t_delta,
+                     "VM_FIN": t_fin, "Delta_VM_pct": t_pct,
+                     "Tendance": trend(t_pct / 100 if pd.notna(t_pct) else np.nan),
+                     "Alloc (%)": 100.0, "Δ Alloc (%)": 0.0, "Spread": np.nan}
+        if id_col:      total_det[id_col]      = ""
+        if libelle_col: total_det[libelle_col] = ""
+        res_det = pd.concat([res_det, pd.DataFrame([total_det])], ignore_index=True)
+
+        # Construction colonnes finales : dim, Notation, ID, Libellé, VM, puis métriques
+        cols_det = [dim_col, "NOTATION"]
+        if id_col:      cols_det.append(id_col)
+        if libelle_col: cols_det.append(libelle_col)
+        cols_det += ["VM_FIN", "Delta_VM", "Delta_VM_pct", "Tendance", "Alloc (%)", "Δ Alloc (%)", "Spread"]
+        cols_det = [c for c in cols_det if c in res_det.columns]
+
+        rename_det = {
+            dim_col:        choix_dim_affichage,
+            "NOTATION":     "Notation",
+            "VM_FIN":       "Valeur de marché (M€)",
+            "Delta_VM":     "Δ VM (M€)",
+            "Delta_VM_pct": "Δ VM (%)",
+            "Spread":       "Spread (bp)",
+        }
+        if id_col:      rename_det[id_col]      = "ID"
+        if libelle_col: rename_det[libelle_col] = "Libellé"
+
+        aff_det = res_det[cols_det].rename(columns=rename_det)
+
+        fmt_map_det = {
+            "Valeur de marché (M€)": fmt_meur,
+            "Δ VM (M€)":             fmt_delta_meur,
+            "Δ VM (%)":              fmt_pct,
+            "Alloc (%)":             fmt_pct,
+            "Δ Alloc (%)":           fmt_pct,
+            "Spread (bp)":           fmt_bp,
+        }
+        # --- Filtres ---
+        mask_total = aff_det[choix_dim_affichage].astype(str).str.upper() == "TOTAL"
+        aff_corps  = aff_det[~mask_total]
+        aff_total  = aff_det[mask_total]
+
+        fcol1, fcol2, fcol3, fcol4 = st.columns(4)
+
+        with fcol1:
+            opts_dim = sorted(aff_corps[choix_dim_affichage].dropna().astype(str).unique().tolist())
+            sel_dim  = st.multiselect(choix_dim_affichage, options=opts_dim, default=opts_dim,
+                                      key="det_spread_dim")
+        with fcol2:
+            opts_not = sorted(aff_corps["Notation"].dropna().astype(str).unique().tolist())
+            sel_not  = st.multiselect("Notation", options=opts_not, default=opts_not,
+                                      key="det_spread_not")
+        with fcol3:
+            if "Libellé" in aff_corps.columns:
+                search_lib = st.text_input("Libellé (recherche)", value="", key="det_spread_lib")
+            else:
+                search_lib = ""
+        with fcol4:
+            if "ID" in aff_corps.columns:
+                search_id = st.text_input("ID (recherche)", value="", key="det_spread_id")
+            else:
+                search_id = ""
+
+        # Application des filtres
+        filtered = aff_corps.copy()
+        if sel_dim:
+            filtered = filtered[filtered[choix_dim_affichage].astype(str).isin(sel_dim)]
+        if sel_not:
+            filtered = filtered[filtered["Notation"].astype(str).isin(sel_not)]
+        if search_lib and "Libellé" in filtered.columns:
+            filtered = filtered[filtered["Libellé"].astype(str).str.contains(search_lib, case=False, na=False)]
+        if search_id and "ID" in filtered.columns:
+            filtered = filtered[filtered["ID"].astype(str).str.contains(search_id, case=False, na=False)]
+
+        aff_det_filtered = pd.concat([filtered, aff_total], ignore_index=True)
+
+        styled_det = apply_common_table_styles(
+            aff_det_filtered,
+            fmt_map=fmt_map_det,
+            total_cols=(choix_dim_affichage,),
+            delta_meur_col="Δ VM (M€)",
+            delta_pct_col="Δ VM (%)",
+            tendance_col="Tendance",
+        )
+        st.markdown("**Détail par titre — Spread**")
+        n_det = len(aff_det_filtered)
+        st.dataframe(styled_det, use_container_width=True, hide_index=True,
+                     height=35 * (n_det + 1) + 3)
+
+        excel_det = df_to_excel_bytes(aff_det, sheet_name="Détail_titres_spread")
+        st.download_button(
+            label="📥 Télécharger le détail en Excel",
+            data=excel_det,
+            file_name="detail_titres_spread.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="spread_detail_excel",
+        )
 
     # Stockage pour l'onglet Rapport
     st.session_state["rapport_spread"] = {
