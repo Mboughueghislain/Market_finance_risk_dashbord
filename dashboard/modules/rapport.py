@@ -14,6 +14,7 @@ from modules.format_utils import (
     fmt_pct,
     fmt_bp,
     apply_common_table_styles,
+    render_static_dataframe,
 )
 from modules.rapport_pdf_V2 import build_full_pdf_report_v2
 
@@ -52,12 +53,7 @@ def build_portefeuille_block_for_report(df_selection, use_transpa, date_debut, d
             col_bar.plotly_chart(fig_bar, use_container_width=True, key="rapport_pf_bar")
 
         if table_pf is not None and not table_pf.empty:
-            st.dataframe(
-                apply_common_table_styles(table_pf),
-                use_container_width=True,
-                hide_index=True,
-                height=35 * (len(table_pf) + 1) + 3,
-            )
+            render_static_dataframe(apply_common_table_styles(table_pf))
 
         commentaire_pf = st.text_area(
             "📝 Commentaire – Portefeuille",
@@ -95,15 +91,10 @@ def build_portefeuille_block_for_report(df_selection, use_transpa, date_debut, d
         # 2.1 Duration x type de gestion
         st.markdown("### 2.1 Répartition par duration et type de gestion")
         if fig_stack:
-            st.plotly_chart(fig_stack, use_container_width=True, key="rapport_taux_stack")
+            st.plotly_chart(fig_stack, use_container_width=True, key="rapport_taux_stack", config={"displayModeBar": "hover"})
         if table_duration is not None and not table_duration.empty:
             fmt_dur = {c: fmt_meur for c in cols_gestion + ["Total"] if c in table_duration.columns}
-            st.dataframe(
-                apply_common_table_styles(table_duration, fmt_dur),
-                use_container_width=True,
-                hide_index=True,
-                height=35 * (len(table_duration) + 1) + 3,
-            )
+            render_static_dataframe(apply_common_table_styles(table_duration, fmt_dur))
         commentaire_taux_vm = st.text_area(
             "📝 Commentaire – Répartition Taux (duration / gestion)",
             key="commentaire_taux_vm_rapport",
@@ -122,19 +113,14 @@ def build_portefeuille_block_for_report(df_selection, use_transpa, date_debut, d
         st.markdown("---")
         st.markdown("### 2.2 Variation & VaR par segment de duration")
         if fig_var_seg:
-            st.plotly_chart(fig_var_seg, use_container_width=True, key="rapport_taux_var")
+            st.plotly_chart(fig_var_seg, use_container_width=True, key="rapport_taux_var", config={"displayModeBar": "hover"})
         if table_var is not None and not table_var.empty:
             fmt_var = {
                 "Δ VM (M€)":    fmt_meur,
                 "VaR 95% (M€)": fmt_meur,
                 "VaR 99% (M€)": fmt_meur,
             }
-            st.dataframe(
-                apply_common_table_styles(table_var, fmt_var),
-                use_container_width=True,
-                hide_index=True,
-                height=35 * (len(table_var) + 1) + 3,
-            )
+            render_static_dataframe(apply_common_table_styles(table_var, fmt_var))
         commentaire_taux_var = st.text_area(
             "📝 Commentaire – Variation & VaR Taux",
             key="commentaire_taux_var_rapport",
@@ -168,17 +154,12 @@ def build_portefeuille_block_for_report(df_selection, use_transpa, date_debut, d
         table_global = spread.get("table_global")
 
         if fig_scatter:
-            st.plotly_chart(fig_scatter, use_container_width=True, key="rapport_spread_scatter")
+            st.plotly_chart(fig_scatter, use_container_width=True, key="rapport_spread_scatter", config={"displayModeBar": "hover"})
         if table_global is not None and not table_global.empty:
-            st.dataframe(
-                apply_common_table_styles(table_global),
-                use_container_width=True,
-                hide_index=True,
-                height=35 * (len(table_global) + 1) + 3,
-            )
+            render_static_dataframe(apply_common_table_styles(table_global))
         if fig_treemap:
             st.markdown("**Répartition par Type d'émetteur / Rating / Titre**")
-            st.plotly_chart(fig_treemap, use_container_width=True, key="rapport_spread_treemap")
+            st.plotly_chart(fig_treemap, use_container_width=True, key="rapport_spread_treemap", config={"displayModeBar": "hover"})
         commentaire_spread_global = st.text_area(
             "📝 Commentaire – Risque de Spread global",
             key="commentaire_spread_global_rapport",
@@ -200,14 +181,9 @@ def build_portefeuille_block_for_report(df_selection, use_transpa, date_debut, d
         table_souv  = spread.get("table_souverain")
 
         if fig_geo:
-            st.plotly_chart(fig_geo, use_container_width=True, key="rapport_spread_geo")
+            st.plotly_chart(fig_geo, use_container_width=True, key="rapport_spread_geo", config={"displayModeBar": "hover"})
         if table_souv is not None and not table_souv.empty:
-            st.dataframe(
-                apply_common_table_styles(table_souv),
-                use_container_width=True,
-                hide_index=True,
-                height=35 * (len(table_souv) + 1) + 3,
-            )
+            render_static_dataframe(apply_common_table_styles(table_souv))
         commentaire_souv = st.text_area(
             "📝 Commentaire – Spread souverain",
             key="commentaire_spread_souverain_rapport",
@@ -229,14 +205,9 @@ def build_portefeuille_block_for_report(df_selection, use_transpa, date_debut, d
         table_corp = spread.get("table_corporate")
 
         if fig_conc:
-            st.plotly_chart(fig_conc, use_container_width=True, key="rapport_spread_conc")
+            st.plotly_chart(fig_conc, use_container_width=True, key="rapport_spread_conc", config={"displayModeBar": "hover"})
         if table_corp is not None and not table_corp.empty:
-            st.dataframe(
-                apply_common_table_styles(table_corp),
-                use_container_width=True,
-                hide_index=True,
-                height=35 * (len(table_corp) + 1) + 3,
-            )
+            render_static_dataframe(apply_common_table_styles(table_corp))
         commentaire_corp = st.text_area(
             "📝 Commentaire – Spread Corporate",
             key="commentaire_spread_corporate_rapport",
@@ -269,14 +240,9 @@ def build_portefeuille_block_for_report(df_selection, use_transpa, date_debut, d
         table_issuer = action.get("table_issuer")
 
         if fig_issuer:
-            st.plotly_chart(fig_issuer, use_container_width=True, key="rapport_action_issuer")
+            st.plotly_chart(fig_issuer, use_container_width=True, key="rapport_action_issuer", config={"displayModeBar": "hover"})
         if table_issuer is not None and not table_issuer.empty:
-            st.dataframe(
-                apply_common_table_styles(table_issuer),
-                use_container_width=True,
-                hide_index=True,
-                height=35 * (len(table_issuer) + 1) + 3,
-            )
+            render_static_dataframe(apply_common_table_styles(table_issuer))
         commentaire_issuer = st.text_area(
             "📝 Commentaire – Concentration par émetteur / groupe",
             key="commentaire_action_issuer_rapport",
@@ -298,14 +264,9 @@ def build_portefeuille_block_for_report(df_selection, use_transpa, date_debut, d
         table_geo      = action.get("table_geo")
 
         if fig_geo_action:
-            st.plotly_chart(fig_geo_action, use_container_width=True, key="rapport_action_geo")
+            st.plotly_chart(fig_geo_action, use_container_width=True, key="rapport_action_geo", config={"displayModeBar": "hover"})
         if table_geo is not None and not table_geo.empty:
-            st.dataframe(
-                apply_common_table_styles(table_geo),
-                use_container_width=True,
-                hide_index=True,
-                height=35 * (len(table_geo) + 1) + 3,
-            )
+            render_static_dataframe(apply_common_table_styles(table_geo))
         commentaire_geo = st.text_area(
             "📝 Commentaire – Concentration géographique (Action)",
             key="commentaire_action_geo_rapport",
@@ -327,14 +288,9 @@ def build_portefeuille_block_for_report(df_selection, use_transpa, date_debut, d
         table_secteur = action.get("table_secteur")
 
         if fig_secteur:
-            st.plotly_chart(fig_secteur, use_container_width=True, key="rapport_action_secteur")
+            st.plotly_chart(fig_secteur, use_container_width=True, key="rapport_action_secteur", config={"displayModeBar": "hover"})
         if table_secteur is not None and not table_secteur.empty:
-            st.dataframe(
-                apply_common_table_styles(table_secteur),
-                use_container_width=True,
-                hide_index=True,
-                height=35 * (len(table_secteur) + 1) + 3,
-            )
+            render_static_dataframe(apply_common_table_styles(table_secteur))
         commentaire_sect = st.text_area(
             "📝 Commentaire – Concentration par secteur (Action)",
             key="commentaire_action_secteur_rapport",
@@ -363,14 +319,9 @@ def build_portefeuille_block_for_report(df_selection, use_transpa, date_debut, d
         table_immo = immo.get("table")
 
         if fig_immo:
-            st.plotly_chart(fig_immo, use_container_width=True, key="rapport_immo_pie")
+            st.plotly_chart(fig_immo, use_container_width=True, key="rapport_immo_pie", config={"displayModeBar": "hover"})
         if table_immo is not None and not table_immo.empty:
-            st.dataframe(
-                apply_common_table_styles(table_immo),
-                use_container_width=True,
-                hide_index=True,
-                height=35 * (len(table_immo) + 1) + 3,
-            )
+            render_static_dataframe(apply_common_table_styles(table_immo))
         commentaire_immo = st.text_area(
             "📝 Commentaire – Risque Immobilier",
             key="commentaire_immo_rapport",

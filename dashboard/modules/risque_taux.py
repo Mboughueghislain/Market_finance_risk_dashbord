@@ -14,6 +14,7 @@ from modules.format_utils import (
     fmt_pct,
     df_to_excel_bytes,
     apply_common_table_styles,
+    render_static_dataframe,
 )
 
 # ==========================================================
@@ -350,7 +351,7 @@ def build_taux_duration_block(
         barmode="stack",
         labels={
             "SEGMENT_DURATION": "Duration",
-            "VM_MEUR": "Valeur de marché (M€)",
+            "VM_MEUR": "VM (M€)",
             "Type de gestion": "Type de gestion",
         },
         custom_data=["VM_MEUR", "TOTAL_MEUR", "Type de gestion"],
@@ -386,7 +387,7 @@ def build_taux_duration_block(
         barmode="stack",
         labels={
             DURATION_LABEL_COL: "",
-            "VM_MEUR": "Valeur de marché (M€)",
+            "VM_MEUR": "VM (M€)",
             "Type de gestion": "Type de gestion",
         },
         custom_data=["VM_MEUR", "TOTAL_MEUR", "PCT_TOTAL", "Type de gestion"],
@@ -538,17 +539,12 @@ def render_risque_taux_tab(df_selection: pd.DataFrame, date_debut, date_fin):
 
     styled_table = _style_table_with_total(view_table, cols_gestion)
 
-    st.markdown("**Valeur de marché par segment de duration et type de gestion (M€)**")
+    st.markdown("**VM par segment de duration et type de gestion (M€)**")
     col_table, col_graphs = st.columns([1, 1.15])
 
     # --- Tableau + export ---
     with col_table:
-        st.dataframe(
-            styled_table,
-            use_container_width=True,
-            hide_index=True,
-            height=35 * (len(view_table) + 1) + 3,
-        )
+        render_static_dataframe(styled_table)
 
         excel_bytes = df_to_excel_bytes(view_table, sheet_name="Risque_Taux_Duration")
         st.download_button(
@@ -561,9 +557,9 @@ def render_risque_taux_tab(df_selection: pd.DataFrame, date_debut, date_fin):
     with col_graphs:
         col_stack, col_total = st.columns([2, 1])
         with col_stack:
-            st.plotly_chart(fig_stack, use_container_width=True)
+            st.plotly_chart(fig_stack, use_container_width=True, config={"displayModeBar": "hover"})
         with col_total:
-            st.plotly_chart(fig_total, use_container_width=True)
+            st.plotly_chart(fig_total, use_container_width=True, config={"displayModeBar": "hover"})
 
     # --------------------------------------------------------------
     # 3) Var. période & stress (VaR 95 / VaR 99)
@@ -592,12 +588,7 @@ def render_risque_taux_tab(df_selection: pd.DataFrame, date_debut, date_fin):
             stable_threshold_meur=0.05,
         )
 
-        st.dataframe(
-            styled_var,
-            use_container_width=True,
-            hide_index=True,
-            height=35 * (len(df_var_view) + 1) + 3,
-        )
+        render_static_dataframe(styled_var)
 
         # Export Excel – Var / VaR
         excel_bytes_var = df_to_excel_bytes(
@@ -615,9 +606,9 @@ def render_risque_taux_tab(df_selection: pd.DataFrame, date_debut, date_fin):
     with col_var_graph:
         col_var_seg_graph, col_var_tot_graph = st.columns([2, 1])
         with col_var_seg_graph:
-            st.plotly_chart(fig_var_seg, use_container_width=True)
+            st.plotly_chart(fig_var_seg, use_container_width=True, config={"displayModeBar": "hover"})
         with col_var_tot_graph:
-            st.plotly_chart(fig_var_tot, use_container_width=True)
+            st.plotly_chart(fig_var_tot, use_container_width=True, config={"displayModeBar": "hover"})
 
     # Stockage pour l'onglet Rapport
     st.session_state["rapport_taux"] = {

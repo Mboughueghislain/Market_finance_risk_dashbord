@@ -58,16 +58,11 @@ st.markdown(
     <style>
     div[data-testid="stPlotlyChart"] > div { margin-top: 0 !important; padding-top: 0 !important; }
     div[data-testid="stPlotlyChart"] { margin-top: 0 !important; padding-top: 0 !important; overflow: visible !important; }
-    /* Remonte la modebar au-dessus du graphique sans décaler le contenu */
-    div[data-testid="stPlotlyChart"] .modebar-container {
-        top: -26px !important;
-        position: absolute !important;
-    }
+    /* Décale la modebar vers le haut pour ne pas chevaucher la figure */
+    div[data-testid="stPlotlyChart"] .modebar { margin-top: -10px !important; }
 
-    /* ---- Masquer toolbar image (icône caméra + fullscreen) ---- */
+    /* ---- Masquer toolbar image (icône caméra) ---- */
     [data-testid="stImageActionButtons"] { display: none !important; }
-    [data-testid="StyledFullScreenButton"] { display: none !important; }
-    button[title="View fullscreen"] { display: none !important; }
 
     /* ---- Fond principal ---- */
     .stApp, .main .block-container {

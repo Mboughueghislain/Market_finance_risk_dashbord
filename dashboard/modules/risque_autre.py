@@ -11,6 +11,8 @@ from modules.format_utils import (
     fmt_delta_meur,
     fmt_pct,
     df_to_excel_bytes,
+    apply_common_table_styles,
+    render_static_dataframe,
 )
 
 
@@ -118,8 +120,8 @@ def render_risque_autre_tab(df_selection: pd.DataFrame, date_debut, date_fin):
 
     view = view.rename(columns={
         dim_col: choix_dim_affichage,
-        "VM_DEBUT": "Valeur de marché début (M€)",
-        "VM_FIN": "Valeur de marché fin (M€)",
+        "VM_DEBUT": "VM début (M€)",
+        "VM_FIN": "VM fin (M€)",
         "Delta_VM": "Δ VM (M€)",
         "Delta_VM_pct": "Δ VM (%)",
         "Tendance": "Tendance",
@@ -133,8 +135,8 @@ def render_risque_autre_tab(df_selection: pd.DataFrame, date_debut, date_fin):
     styled = (
         view.style
         .format({
-            "Valeur de marché début (M€)": fmt_meur,
-            "Valeur de marché fin (M€)": fmt_meur,
+            "VM début (M€)": fmt_meur,
+            "VM fin (M€)": fmt_meur,
             "Δ VM (M€)": fmt_delta_meur,
             "Δ VM (%)": fmt_pct,
         })
@@ -144,12 +146,7 @@ def render_risque_autre_tab(df_selection: pd.DataFrame, date_debut, date_fin):
     col_table, col_graphs = st.columns([1.1, 1])
 
     with col_table:
-        st.dataframe(
-            styled,
-            use_container_width=True,
-            hide_index=True,
-            height=35 * (len(view) + 1) + 3,
-        )
+        render_static_dataframe(styled)
 
         excel_bytes = df_to_excel_bytes(view, sheet_name="Risque_Autre")
         st.download_button(
@@ -180,7 +177,7 @@ def render_risque_autre_tab(df_selection: pd.DataFrame, date_debut, date_fin):
                     showarrow=False,
                 )],
             )
-            st.plotly_chart(fig_pie, use_container_width=True)
+            st.plotly_chart(fig_pie, use_container_width=True, config={"displayModeBar": "hover"})
 
             df_graph_bar = df_graph.copy()
             df_graph_bar["Delta_VM_MEUR"] = df_graph_bar["Delta_VM"] / 1e6
@@ -192,6 +189,6 @@ def render_risque_autre_tab(df_selection: pd.DataFrame, date_debut, date_fin):
                 title="Variation de la VM (M€)",
                 labels={"Delta_VM_MEUR": "Δ VM (M€)", dim_col: ""},
             )
-            st.plotly_chart(fig_bar, use_container_width=True)
+            st.plotly_chart(fig_bar, use_container_width=True, config={"displayModeBar": "hover"})
         else:
             st.info("Pas de données pour tracer les graphes Autre.")

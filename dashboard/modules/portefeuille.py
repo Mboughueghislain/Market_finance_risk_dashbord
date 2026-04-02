@@ -12,8 +12,11 @@ from modules.format_utils import (
     fmt_meur,
     fmt_delta_meur,
     fmt_pct,
+    fmt_pct_no_sign,
     df_to_excel_bytes,
     apply_common_table_styles,
+    render_static_dataframe,
+    compress_group_labels,
     add_alloc_columns,
 )
 
@@ -306,7 +309,7 @@ def build_portefeuille_figures(
             df_cat,
             names=group_col,
             values="VM_INIT",
-            title=f"Répartition de la Valeur de Marché par {dim_label}",
+            title=f"Répartition de la VM par {dim_label}",
             hole=0.55,
             color=group_col,
             color_discrete_map=color_map,
@@ -348,7 +351,7 @@ def build_portefeuille_figures(
             y=group_col,
             color="Signe",
             orientation="h",
-            title=f"Variation de la Valeur de Marché par {dim_label} (M€)",
+            title=f"Variation de la VM par {dim_label} (M€)",
             labels={"Delta_VM": "", group_col: ""},
             category_orders={group_col: df_bar[group_col].tolist()},  # garde ton ordre
             color_discrete_map={"Hausse": "#2ca02c", "Baisse": "#d62728", "Stable": "#bcbd22"},
@@ -449,19 +452,6 @@ def sort_portefeuille_pdf(df):
 
     return df
 
-# Fonction pour compresser les labels de groupe dans le tableau
-def compress_group_labels(df: pd.DataFrame, group_col: str) -> pd.DataFrame:
-    """
-    Affiche la valeur de group_col uniquement sur la 1ère ligne de chaque bloc,
-    puis met vide sur les lignes suivantes (effet 'grouped' type PDF).
-    """
-    if group_col not in df.columns:
-        return df
-
-    out = df.copy()
-    mask_dup = out[group_col].eq(out[group_col].shift(1))
-    out.loc[mask_dup, group_col] = ""   # ou None
-    return out
 
 def render_portefeuille_tab(df_selection: pd.DataFrame, use_transpa: bool, date_debut, date_fin):
     """
@@ -654,7 +644,7 @@ def render_portefeuille_tab(df_selection: pd.DataFrame, use_transpa: bool, date_
             st.plotly_chart(
                 fig_pie,
                 key="pf_pie_portefeuille"
-            )
+            , config={"displayModeBar": "hover"})
 
     with col_bar:
         st.markdown(f"### Variation de la valeur de marché par {dim_label.lower()}")
@@ -680,7 +670,7 @@ def render_portefeuille_tab(df_selection: pd.DataFrame, use_transpa: bool, date_
                 fig_bar,
                 use_container_width=True,
                 key="pf_bar_portefeuille"
-            )
+            , config={"displayModeBar": "hover"})
 
     # ======================================================
     # TABLEAU
@@ -701,7 +691,7 @@ def render_portefeuille_tab(df_selection: pd.DataFrame, use_transpa: bool, date_
 
     # Colonnes de métriques
     metric_cols = [
-        ("VM_FIN", "Valeur de Marché (M€)"),
+        ("VM_FIN", "VM (M€)"),
         ("Delta_VM", "Δ VM (M€)"),
         ("Delta_VM_pct", "Δ VM (%)"),
         ("Tendance", "Tendance"),
@@ -733,12 +723,12 @@ def render_portefeuille_tab(df_selection: pd.DataFrame, use_transpa: bool, date_
 
     # Formats d'affichage
     fmt_map = {}
-    if "Valeur de Marché (M€)" in aff.columns:
-        fmt_map["Valeur de Marché (M€)"] = fmt_meur
+    if "VM (M€)" in aff.columns:
+        fmt_map["VM (M€)"] = fmt_meur
     if "Alloc (%)" in aff.columns:
-        fmt_map["Alloc (%)"] = fmt_pct
+        fmt_map["Alloc (%)"] = fmt_pct_no_sign
     if "Δ Alloc (%)" in aff.columns:
-        fmt_map["Δ Alloc (%)"] = fmt_pct
+        fmt_map["Δ Alloc (%)"] = fmt_pct_no_sign
     if "Δ VM (M€)" in aff.columns:
         fmt_map["Δ VM (M€)"] = fmt_delta_meur
     if "Δ VM (%)" in aff.columns:
@@ -771,13 +761,7 @@ def render_portefeuille_tab(df_selection: pd.DataFrame, use_transpa: bool, date_
         unsafe_allow_html=True,
     )
 
-    n_rows = len(aff)
-    st.dataframe(
-        styler,
-        use_container_width=True,
-        hide_index=True,
-        height=35 * (n_rows + 1) + 3,
-    )
+    render_static_dataframe(styler)
 
     # ======================================================
     # EXPORT EXCEL
@@ -856,7 +840,7 @@ def render_portefeuille_tab(df_selection: pd.DataFrame, use_transpa: bool, date_
                 SUBCLASS_COL: "Sous-classe d'actifs",
                 "ID": "ID",
                 "LIBELLE": "Libellé",
-                "VM_FIN": "Valeur de Marché (M€)",
+                "VM_FIN": "VM (M€)",
                 "Delta_VM": "Δ VM (M€)",
                 "Delta_VM_pct": "Δ VM (%)",
                 "Tendance": "Tendance",

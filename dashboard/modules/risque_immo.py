@@ -9,6 +9,7 @@ from modules.risque_action import _pick_first_existing_col
 from modules.format_utils import (
     trend,
     apply_common_table_styles,
+    render_static_dataframe,
     df_to_excel_bytes,
     add_alloc_columns,
 )
@@ -145,7 +146,7 @@ def build_risque_immo_section(
 
     view = view.rename(columns={
         dim_col: label_dim,
-        "VM_FIN": "Valeur de Marché (M€)",
+        "VM_FIN": "VM (M€)",
         "Delta_VM": "Δ VM (M€)",
         "Delta_VM_pct": "Δ VM (%)",
         "Tendance": "Tendance",
@@ -268,12 +269,7 @@ def render_risque_immo_tab(df_selection: pd.DataFrame, date_debut, date_fin):
     with col_table:
         styled = apply_common_table_styles(view)
 
-        st.dataframe(
-            styled,
-            use_container_width=True,
-            hide_index=True,
-            height=35 * (len(view) + 1) + 3,
-        )
+        render_static_dataframe(styled)
 
         excel_bytes = df_to_excel_bytes(view, sheet_name="Risque_Immobilier")
         st.download_button(
@@ -288,7 +284,7 @@ def render_risque_immo_tab(df_selection: pd.DataFrame, date_debut, date_fin):
         if fig_pie is None:
             st.info("Impossible de tracer le camembert : aucune VM positive.")
         else:
-            st.plotly_chart(fig_pie, use_container_width=True, key="immo_pie_rapport")
+            st.plotly_chart(fig_pie, use_container_width=True, key="immo_pie_rapport", config={"displayModeBar": "hover"})
 
     # Stockage pour l'onglet Rapport
     st.session_state["rapport_immo"] = {

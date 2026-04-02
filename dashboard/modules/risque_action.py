@@ -34,6 +34,7 @@ from modules.format_utils import (
     df_to_excel_bytes,
     style_total_row,
     apply_common_table_styles,
+    render_static_dataframe,
     add_alloc_columns,
 )
 
@@ -400,14 +401,14 @@ def build_risque_action_issuer_section(
     df_aff = df_conc_issuer_top10.copy()
     df_aff = df_aff.rename(columns={
         "Libellé": label_header,  # libellé dynamique
-        "VM_FIN": "Valeur de marché (M€)",
+        "VM_FIN": "VM (M€)",
         "Delta_VM": "Δ VM (M€)",
         "Delta_VM_pct": "Δ VM (%)",
     })
 
     cols_order = [
         label_header,
-        "Valeur de marché (M€)",
+        "VM (M€)",
         "Δ VM (M€)",
         "Δ VM (%)",
         "Tendance",
@@ -475,14 +476,14 @@ def build_risque_action_geo_section(
     df_aff_geo = df_conc_geo_top10.copy()
     df_aff_geo = df_aff_geo.rename(columns={
         "Libellé": "Pays",
-        "VM_FIN": "Valeur de marché (M€)",
+        "VM_FIN": "VM (M€)",
         "Delta_VM": "Δ VM (M€)",
         "Delta_VM_pct": "Δ VM (%)",
     })
     df_aff_geo = df_aff_geo[
         [c for c in [
             "Pays",
-            "Valeur de marché (M€)",
+            "VM (M€)",
             "Δ VM (M€)",
             "Δ VM (%)",
             "Tendance",
@@ -630,14 +631,14 @@ def build_risque_action_sector_section(
     df_aff_sect = df_conc_sect.copy()
     df_aff_sect = df_aff_sect.rename(columns={
         "Libellé": "Libellé de l'emetteur",
-        "VM_FIN": "Valeur de marché (M€)",
+        "VM_FIN": "VM (M€)",
         "Delta_VM": "Δ VM (M€)",
         "Delta_VM_pct": "Δ VM (%)",
     })
     df_aff_sect = df_aff_sect[
         [c for c in [
             "Libellé de l'emetteur",
-            "Valeur de marché (M€)",
+            "VM (M€)",
             "Δ VM (M€)",
             "Δ VM (%)",
             "Tendance",
@@ -770,12 +771,7 @@ def render_risque_action_tab(df_selection: pd.DataFrame, date_debut, date_fin):
         col_tab, col_heat = st.columns([1.5, 1])
 
         with col_tab:
-            st.dataframe(
-                apply_common_table_styles(df_aff),
-                use_container_width=True,
-                hide_index=True,
-                height=35 * (len(df_aff) + 1) + 3,
-            )
+            render_static_dataframe(apply_common_table_styles(df_aff))
 
             excel_bytes = df_to_excel_bytes(df_aff, sheet_name="Top10_Emetteur_Groupe")
             st.download_button(
@@ -789,7 +785,7 @@ def render_risque_action_tab(df_selection: pd.DataFrame, date_debut, date_fin):
             if fig_treemap is None:
                 st.info("Treemap indisponible : aucune exposition positive.")
             else:
-                st.plotly_chart(fig_treemap, use_container_width=True)
+                st.plotly_chart(fig_treemap, use_container_width=True, config={"displayModeBar": "hover"})
 
     st.markdown("---")
 
@@ -835,12 +831,7 @@ def render_risque_action_tab(df_selection: pd.DataFrame, date_debut, date_fin):
         col_tab, col_map = st.columns([1.5, 1])
 
         with col_tab:
-            st.dataframe(
-                apply_common_table_styles(df_aff_geo),
-                use_container_width=True,
-                hide_index=True,
-                height=35 * (len(df_aff_geo) + 1) + 3,
-            )
+            render_static_dataframe(apply_common_table_styles(df_aff_geo))
 
             excel_bytes = df_to_excel_bytes(df_aff_geo, sheet_name="Top10_Geographie")
             st.download_button(
@@ -854,7 +845,7 @@ def render_risque_action_tab(df_selection: pd.DataFrame, date_debut, date_fin):
             if fig_map is None:
                 st.info("Carte indisponible : aucune exposition positive ou aucun pays mappé.")
             else:
-                st.plotly_chart(fig_map, use_container_width=True)
+                st.plotly_chart(fig_map, use_container_width=True, config={"displayModeBar": "hover"})
     st.markdown("---")
 
     # ======================================================
@@ -902,12 +893,7 @@ def render_risque_action_tab(df_selection: pd.DataFrame, date_debut, date_fin):
     col_tab, col_heat = st.columns([1.5, 1])
 
     with col_tab:
-        st.dataframe(
-            apply_common_table_styles(df_aff_sect),
-            use_container_width=True,
-            hide_index=True,
-            height=35 * (len(df_aff_sect) + 1) + 3,
-        )
+        render_static_dataframe(apply_common_table_styles(df_aff_sect))
 
         excel_bytes = df_to_excel_bytes(df_aff_sect, sheet_name="Concentration_Secteur")
         st.download_button(
@@ -921,7 +907,7 @@ def render_risque_action_tab(df_selection: pd.DataFrame, date_debut, date_fin):
         if fig_treemap_sect is None:
             st.info("Treemap indisponible : aucune exposition positive après agrégation.")
         else:
-            st.plotly_chart(fig_treemap_sect, use_container_width=True)
+            st.plotly_chart(fig_treemap_sect, use_container_width=True, config={"displayModeBar": "hover"})
 
     # Stockage pour l'onglet Rapport
     st.session_state["rapport_action"] = {

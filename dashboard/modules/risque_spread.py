@@ -10,9 +10,12 @@ from modules.format_utils import (
     fmt_meur,
     fmt_delta_meur,
     fmt_pct,
+    fmt_pct_no_sign,
     fmt_bp,
     df_to_excel_bytes,
     apply_common_table_styles,
+    render_static_dataframe,
+    compress_group_labels,
     add_alloc_columns,
 )
 # ====================
@@ -295,6 +298,7 @@ def build_spread_global_section(
     dim_col: str,
     dim_label: str,
     ordre_notation,
+    col_lib: str = "LIBELLE",
 ):
     """
     Construit le bloc 'tableau global + nuage Spread / Duration' SANS Streamlit.
@@ -450,7 +454,7 @@ def build_spread_global_section(
         columns={
             dim_col: dim_label,
             "NOTATION": "Notation",
-            "VM_FIN": "Valeur de marché (M€)",
+            "VM_FIN": "VM (M€)",
             "Delta_VM": "Δ VM (M€)",
             "Delta_VM_pct": "Δ VM (%)",
             "Tendance": "Tendance",
@@ -487,7 +491,7 @@ def build_spread_global_section(
             "Spread": "Spread (bp)",
             dim_col: dim_label,
             "NOTATION": "Notation",
-            "VM_FIN": "Valeur de marché",
+            "VM_FIN": "VM",
         },
     )
     fig_scatter.update_layout(margin=dict(t=0, b=40, l=40, r=10))
@@ -503,24 +507,29 @@ def build_spread_global_section(
     )
 
     # -------------------------
-    # Treemap : dim_col → NOTATION → LIBELLE
+    # Treemap : dim_col → NOTATION → col_lib (libellé groupe ou libellé émetteur)
     # -------------------------
     fig_treemap = None
-    libelle_col = "LIBELLE" if "LIBELLE" in dff.columns else None
+    leaf_col = col_lib if col_lib in dff.columns else ("LIBELLE" if "LIBELLE" in dff.columns else None)
+    leaf_label = (
+        "Libellé groupe" if col_lib == "LIB_GROUPE"
+        else "Libellé émetteur" if col_lib == "LIB_EMETTEUR"
+        else "Titre"
+    )
     notation_col = "NOTATION" if "NOTATION" in dff.columns else None
 
-    if libelle_col and notation_col:
+    if leaf_col and notation_col:
         df_tree = dff[dff["DATE_TRANSPA"] == d1].copy()
         df_tree["VM_INIT"] = pd.to_numeric(df_tree["VM_INIT"], errors="coerce").fillna(0.0)
         df_tree = df_tree[df_tree["VM_INIT"] > 0]
 
         if not df_tree.empty:
-            for col in [dim_col, notation_col, libelle_col]:
+            for col in [dim_col, notation_col, leaf_col]:
                 df_tree[col] = df_tree[col].fillna("n.d.").astype(str).str.strip().replace("", "n.d.")
 
             df_tree_agg = (
                 df_tree
-                .groupby([dim_col, notation_col, libelle_col], dropna=False)["VM_INIT"]
+                .groupby([dim_col, notation_col, leaf_col], dropna=False)["VM_INIT"]
                 .sum()
                 .reset_index()
             )
@@ -536,13 +545,13 @@ def build_spread_global_section(
             if not df_tree_agg.empty:
                 fig_treemap = px.treemap(
                     df_tree_agg,
-                    path=[dim_col, notation_col, libelle_col],
+                    path=[dim_col, notation_col, leaf_col],
                     values="VM_MEUR",
                     color_discrete_sequence=_SPREAD_PALETTE,
                     labels={
                         dim_col: dim_label,
                         notation_col: "Notation",
-                        libelle_col: "Titre",
+                        leaf_col: leaf_label,
                         "VM_MEUR": "VM (M€)",
                     },
                 )
@@ -599,7 +608,7 @@ def build_spread_souverain_block(
     top10_souv = top10_souv.rename(
         columns={
             "Groupe": nom_col_aff_souv,
-            "VM_FIN": "Valeur de marché (M€)",
+            "VM_FIN": "VM (M€)",
             "Delta_VM": "Δ VM (M€)",
             "Delta_VM_pct": "Δ VM (%)",
             "Spread": "Spread (bp)",
@@ -608,7 +617,7 @@ def build_spread_souverain_block(
 
     cols_keep = [
         nom_col_aff_souv,
-        "Valeur de marché (M€)",
+        "VM (M€)",
         "Δ VM (M€)",
         "Δ VM (%)",
         "Tendance",
@@ -754,7 +763,7 @@ ordre_notation,
     top10_corp = top10_corp.rename(
         columns={
             "Groupe": nom_col_aff_corp,
-            "VM_FIN": "Valeur de marché (M€)",
+            "VM_FIN": "VM (M€)",
             "Delta_VM": "Δ VM (M€)",
             "Delta_VM_pct": "Δ VM (%)",
             "Spread": "Spread (bp)",
@@ -763,7 +772,7 @@ ordre_notation,
 
     cols_keep = [
         nom_col_aff_corp,
-        "Valeur de marché (M€)",
+        "VM (M€)",
         "Δ VM (M€)",
         "Δ VM (%)",
         "Tendance",
@@ -825,7 +834,7 @@ ordre_notation,
                 labels={
                     "TYPE_GESTION_LIB": "Type de gestion",
                     "LIB_EMETTEUR": "Émetteur",
-                    "VM_MEUR": "Valeur de marché (M€)",
+                    "VM_MEUR": "VM (M€)",
                 },
             )
             fig_conc.update_layout(margin=dict(t=0, b=40, l=0, r=0))
@@ -888,20 +897,23 @@ def render_risque_spread_tab(df_selection: pd.DataFrame, date_debut, date_fin):
         dim_col=dim_col,
         dim_label=choix_dim_affichage,
         ordre_notation=ordre_notation,
+        col_lib=col_lib,
     )
 
+    view_final = compress_group_labels(view_final, choix_dim_affichage)
+
     fmt_map = {
-        "Valeur de marché (M€)": fmt_meur,
+        "VM (M€)": fmt_meur,
         "Δ VM (M€)": fmt_delta_meur,
         "Δ VM (%)": fmt_pct,
-        "Alloc (%)": fmt_pct,
-        "Δ Alloc (%)": fmt_pct,
+        "Alloc (%)": fmt_pct_no_sign,
+        "Δ Alloc (%)": fmt_pct_no_sign,
         "Spread (bp)": fmt_bp,
     }
     styled = apply_common_table_styles(
         view_final,
         fmt_map=fmt_map,
-        total_cols=(choix_dim_affichage,), # permezt de detecter TOTAL pour le formater en gras
+        total_cols=(choix_dim_affichage,),
         delta_meur_col="Δ VM (M€)",
         delta_pct_col="Δ VM (%)",
         tendance_col="Tendance",
@@ -911,12 +923,7 @@ def render_risque_spread_tab(df_selection: pd.DataFrame, date_debut, date_fin):
     col_table, col_graph = st.columns([1.4, 0.9])
 
     with col_table:
-        st.dataframe(
-            styled,
-            use_container_width=True,
-            hide_index=True,
-            height=35 * (len(view_final) + 1) + 3,
-        )
+        render_static_dataframe(styled)
 
         excel_spread = df_to_excel_bytes(view_final, sheet_name="Risque_Spread")
         st.download_button(
@@ -928,12 +935,17 @@ def render_risque_spread_tab(df_selection: pd.DataFrame, date_debut, date_fin):
 
     with col_graph:
         fig_scatter.update_layout(height=350, margin=dict(t=10, b=40, l=40, r=10))
-        st.plotly_chart(fig_scatter, use_container_width=True)
+        st.plotly_chart(fig_scatter, use_container_width=True, config={"displayModeBar": "hover"})
 
     # -------- Treemap global --------
     if fig_treemap_global is not None:
-        st.markdown(f"**Répartition par {choix_dim_affichage} / Notation / Titre**")
-        st.plotly_chart(fig_treemap_global, use_container_width=True, key=f"spread_treemap_{dim_col}")
+        leaf_label_title = (
+            "Libellé groupe" if col_lib == "LIB_GROUPE"
+            else "Libellé émetteur" if col_lib == "LIB_EMETTEUR"
+            else "Titre"
+        )
+        st.markdown(f"**Répartition par {choix_dim_affichage} / Notation / {leaf_label_title}**")
+        st.plotly_chart(fig_treemap_global, use_container_width=True, key=f"spread_treemap_{dim_col}", config={"displayModeBar": "hover"})
 
     st.markdown("---")
     
@@ -959,7 +971,7 @@ def render_risque_spread_tab(df_selection: pd.DataFrame, date_debut, date_fin):
         )
 
         fmt_map= {
-            "Valeur de marché (M€)": fmt_meur,
+            "VM (M€)": fmt_meur,
             "Δ VM (M€)": fmt_delta_meur,
             "Δ VM (%)": fmt_pct,
             "Alloc (%)": fmt_pct,
@@ -979,13 +991,7 @@ def render_risque_spread_tab(df_selection: pd.DataFrame, date_debut, date_fin):
         col_tab_souv, col_map = st.columns([1.5, 1])
 
         with col_tab_souv:
-            n_rows_souv = len(top10_souv)
-            st.dataframe(
-                styled_top10_souv,
-                use_container_width=True,
-                hide_index=True,
-                height=35 * (n_rows_souv + 1) + 3,
-            )
+            render_static_dataframe(styled_top10_souv)
 
             excel_top10_souv = df_to_excel_bytes(top10_souv, sheet_name="Top10_Souverain")
             st.download_button(
@@ -999,7 +1005,7 @@ def render_risque_spread_tab(df_selection: pd.DataFrame, date_debut, date_fin):
             if fig_geo is None:
                 st.info("Impossible de tracer la carte : aucune information de pays exploitable.")
             else:
-                st.plotly_chart(fig_geo, use_container_width=True)
+                st.plotly_chart(fig_geo, use_container_width=True, config={"displayModeBar": "hover"})
 
     st.markdown("---")
     
@@ -1025,7 +1031,7 @@ def render_risque_spread_tab(df_selection: pd.DataFrame, date_debut, date_fin):
         )
 
         fmt_map= {
-            "Valeur de marché (M€)": fmt_meur,
+            "VM (M€)": fmt_meur,
             "Δ VM (M€)": fmt_delta_meur,
             "Δ VM (%)": fmt_pct,
             "Alloc (%)": fmt_pct,
@@ -1045,13 +1051,7 @@ def render_risque_spread_tab(df_selection: pd.DataFrame, date_debut, date_fin):
         col_tab_corp, col_treemap = st.columns([1.5, 1])
 
         with col_tab_corp:
-            n_rows_corp = len(top10_corp)
-            st.dataframe(
-                styled_top10_corp,
-                use_container_width=True,
-                hide_index=True,
-                height=35 * (n_rows_corp + 1) + 3,
-            )
+            render_static_dataframe(styled_top10_corp)
 
             excel_top10_corp = df_to_excel_bytes(top10_corp, sheet_name="Top10_Corporate")
             st.download_button(
@@ -1065,7 +1065,7 @@ def render_risque_spread_tab(df_selection: pd.DataFrame, date_debut, date_fin):
             if fig_conc is None:
                 st.info("Aucune donnée exploitable pour construire la treemap corporate.")
             else:
-                st.plotly_chart(fig_conc, use_container_width=True)
+                st.plotly_chart(fig_conc, use_container_width=True, config={"displayModeBar": "hover"})
 
     # ======================================================
     # TABLEAU DÉTAIL PAR TITRE
@@ -1140,7 +1140,7 @@ def render_risque_spread_tab(df_selection: pd.DataFrame, date_debut, date_fin):
         rename_det = {
             dim_col:        choix_dim_affichage,
             "NOTATION":     "Notation",
-            "VM_FIN":       "Valeur de marché (M€)",
+            "VM_FIN":       "VM (M€)",
             "Delta_VM":     "Δ VM (M€)",
             "Delta_VM_pct": "Δ VM (%)",
             "Spread":       "Spread (bp)",
@@ -1151,7 +1151,7 @@ def render_risque_spread_tab(df_selection: pd.DataFrame, date_debut, date_fin):
         aff_det = res_det[cols_det].rename(columns=rename_det)
 
         fmt_map_det = {
-            "Valeur de marché (M€)": fmt_meur,
+            "VM (M€)": fmt_meur,
             "Δ VM (M€)":             fmt_delta_meur,
             "Δ VM (%)":              fmt_pct,
             "Alloc (%)":             fmt_pct,

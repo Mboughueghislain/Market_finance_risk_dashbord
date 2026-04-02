@@ -150,14 +150,24 @@ def fmt_delta_pct(x) -> str:
 #===========================================================
 def fmt_bp(x) -> str:
     """
-    Format pour spread en points de base (bp).
+    Format pour spread en points de base (bp) — sans signe + pour les positifs.
     """
     xf = _to_float_or_none(x)
     if xf is None:
         return "—"
-    signe = "+" if xf > 0 else ""
     s = f"{xf:,.0f}".replace(",", " ").replace(".", ",")
-    return f"{signe}{s}bp"
+    return f"{s}bp"
+
+
+def fmt_pct_no_sign(x) -> str:
+    """
+    Format pourcentage sans signe + pour les positifs (colonnes Alloc).
+    """
+    xf = _to_float_or_none(x)
+    if xf is None:
+        return "—"
+    s = f"{xf:,.1f}".replace(",", " ").replace(".", ",")
+    return f"{s} %"
 
 
 # ============================
@@ -197,26 +207,23 @@ def add_alloc_columns(
 
     df = df.copy()
 
-    # Détection de la ligne TOTAL (recherche "TOTAL" dans toutes les colonnes texte)
+    # Détection de la ligne TOTAL — scan toutes les colonnes sans restriction de dtype
     is_total = pd.Series(False, index=df.index)
     for col in df.columns:
-        if df[col].dtype == object or str(df[col].dtype).startswith("string"):
-            try:
-                is_total = is_total | df[col].astype(str).str.strip().str.upper().eq("TOTAL")
-            except Exception:
-                pass
+        try:
+            is_total |= df[col].astype(str).str.strip().str.upper().eq("TOTAL")
+        except Exception:
+            pass
 
     vm_fin = pd.to_numeric(df[vm_fin_col], errors="coerce").fillna(0.0)
     delta_vm = pd.to_numeric(df[delta_vm_col], errors="coerce").fillna(0.0)
     vm_debut = vm_fin - delta_vm
 
-    # Total de référence : ligne TOTAL si présente, sinon somme des lignes données
-    if is_total.any():
-        total_vm_fin = float(vm_fin[is_total].iloc[0])
-        total_vm_debut = float(vm_debut[is_total].iloc[0])
-    else:
-        total_vm_fin = float(vm_fin.sum())
-        total_vm_debut = float(vm_debut.sum())
+    # Total de référence : toujours calculé sur les lignes de données (hors TOTAL)
+    # pour éviter de fausser le résultat si la ligne TOTAL est incluse dans le DataFrame
+    data_mask = ~is_total
+    total_vm_fin = float(vm_fin[data_mask].sum())
+    total_vm_debut = float(vm_debut[data_mask].sum())
 
     alloc = pd.Series(
         np.where(
@@ -363,14 +370,15 @@ def _auto_fmt_map(df: pd.DataFrame) -> Dict[str, Callable]:
     mapping = {}
     for col in df.columns:
         if col.endswith("(M€)"):
-            # Colonnes de variation (avec signe +/-) vs valeur absolue
             if any(k in col for k in ["Δ", "Delta", "delta", "variation", "Variation"]):
                 mapping[col] = fmt_delta_meur
             else:
                 mapping[col] = fmt_meur
         elif col.endswith("(%)"):
-            # Colonnes de variation (Δ ...) → "Nouveau titre" si NaN
-            if any(k in col for k in ["Δ", "Delta", "delta"]):
+            if "Alloc" in col:
+                # Allocation : pas de signe + pour les positifs
+                mapping[col] = fmt_pct_no_sign
+            elif any(k in col for k in ["Δ", "Delta", "delta"]):
                 mapping[col] = fmt_delta_pct
             else:
                 mapping[col] = fmt_pct
@@ -439,6 +447,93 @@ def apply_common_table_styles(
 
 
 #================================================================================
+# Compression des labels de groupe (1ère occurrence visible, suivantes = vide)
+#================================================================================
+def compress_group_labels(df: pd.DataFrame, group_col: str) -> pd.DataFrame:
+    """
+    Affiche la valeur de group_col uniquement sur la 1ère ligne de chaque bloc,
+    puis met vide sur les lignes suivantes (effet 'groupé' type tableau PDF).
+    La ligne TOTAL n'est pas touchée.
+    """
+    if group_col not in df.columns:
+        return df
+    out = df.copy()
+    is_total = out[group_col].astype(str).str.strip().str.upper().eq("TOTAL")
+    mask_dup = out[group_col].eq(out[group_col].shift(1)) & ~is_total
+    out.loc[mask_dup, group_col] = ""
+    return out
+
+
+#================================================================================
+# Rendu statique (HTML, non-triable) d'un Styler
+#================================================================================
+_TABLE_STATIC_STYLES = [
+    {"selector": "table", "props": [
+        ("border-collapse", "collapse"),
+        ("width", "100%"),
+        ("margin", "0"),
+        ("font-size", "14px"),
+        ("font-family", "Source Sans Pro, sans-serif"),
+    ]},
+    {"selector": "thead th", "props": [
+        ("background-color", "#714A80"),
+        ("color", "white"),
+        ("font-weight", "600"),
+        ("padding", "8px 16px"),
+        ("text-align", "left"),
+        ("white-space", "nowrap"),
+        ("font-size", "14px"),
+        ("border-bottom", "none"),
+    ]},
+    {"selector": "tbody td", "props": [
+        ("padding", "7px 16px"),
+        ("white-space", "nowrap"),
+        ("border-bottom", "1px solid #e6e6e6"),
+        ("font-size", "14px"),
+        ("vertical-align", "middle"),
+    ]},
+    {"selector": "tbody tr:last-child td", "props": [
+        ("border-bottom", "none"),
+    ]},
+]
+
+def render_static_dataframe(styler, max_height: Optional[int] = None):
+    """
+    Affiche un Styler en HTML statique : non-triable, non-interactif.
+    Aspect identique aux st.dataframe, sans index, coins arrondis, sans scrollbar visible.
+    """
+    try:
+        styled = styler.hide(axis="index").set_table_styles(_TABLE_STATIC_STYLES, overwrite=False)
+    except Exception:
+        try:
+            styled = styler.set_table_styles(_TABLE_STATIC_STYLES, overwrite=False)
+        except Exception:
+            styled = styler
+    html = styled.to_html(index=False)
+    # Injecte width:100% directement sur la balise <table> générée
+    html = html.replace("<table ", '<table style="width:100%;border-collapse:collapse;" ', 1)
+    overflow_y = f"overflow-y:auto;max-height:{max_height}px;" if max_height else ""
+    wrapper = (
+        f'<div style="'
+        f'width:100%;'
+        f'border-radius:8px;'
+        f'overflow:hidden;'
+        f'border:1px solid #e6e6e6;'
+        f'{overflow_y}'
+        f'">'
+        f'<style>'
+        f'div.st-static-tbl table{{width:100%!important;}}'
+        f'div.st-static-tbl::-webkit-scrollbar{{height:6px;}}'
+        f'div.st-static-tbl::-webkit-scrollbar-track{{background:transparent;}}'
+        f'div.st-static-tbl::-webkit-scrollbar-thumb{{background:#cccccc;border-radius:3px;}}'
+        f'</style>'
+        f'<div class="st-static-tbl" style="overflow-x:auto;">{html}</div>'
+        f'</div>'
+    )
+    st.markdown(wrapper, unsafe_allow_html=True)
+
+
+#================================================================================
 # Tableau avec TOTAL fixé en bas (toujours visible)
 #================================================================================
 def render_table_with_pinned_total(
@@ -468,7 +563,7 @@ def render_table_with_pinned_total(
     height = min((len(df_data) + 1) * 38 + 3, max_height)
 
     styler = apply_common_table_styles(df_data, fmt_map=fmt_map, **style_kwargs)
-    st.dataframe(styler, use_container_width=True, hide_index=True, height=height)
+    render_static_dataframe(styler, max_height=height)
 
     # Ligne TOTAL en HTML (toujours visible sous le tableau)
     if not df_total.empty:
