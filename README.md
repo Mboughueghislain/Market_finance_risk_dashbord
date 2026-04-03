@@ -13,6 +13,18 @@ streamlit run home.py
 
 ## MàJ des données, monter d'abord le repertoire
 
+a la racine du projet, faire
+~/Market_finance_risk_dashbord$ cd /mnt
+
+verifier si le dossier risques existe, avec un ls, si non on le cree
+sudo mkdir risques
+
+verifier les repertoires montés
+ls -lrt
+
+on aura quelquechose comme ceci:
+drwxr-xr-x 2 root root 4096 Apr 3 09:27 risques
+
 sudo mount -t drvfs '\\sv61file0024\Bureautique\Direction des Risques\' /mnt/risques
 
 Verifier le repertoire monté
@@ -36,7 +48,7 @@ cd dashboard/
 source ~/venvs/jupyter/bin/activate
 
 3- Lancer le programme
-streamlit run home.py
+streamlit run home.py --server.address 0.0.0.0 --server.headless true
 
 ======================================================
 avec le cmd
