@@ -14,6 +14,7 @@ from modules.risque_action import render_risque_action_tab
 from modules.risque_immo import render_risque_immo_tab
 from modules.risque_autre import render_risque_autre_tab
 from modules.rapport import build_portefeuille_block_for_report
+from pandas.tseries.offsets import MonthEnd
 
 
 # =========================
@@ -211,11 +212,11 @@ st.markdown(
 # =========================
 _LOGO_PATH = Path(__file__).resolve().parent.parent / "data" / "logo" / "logoeps.png"
 if _LOGO_PATH.exists():
-    st.sidebar.image(str(_LOGO_PATH), caption="Tableau de bord")
+    st.sidebar.image(str(_LOGO_PATH))
 
 
 # =========================
-# LOGIQUE FILTRES & df_selection (TA LOGIQUE)
+# LOGIQUE FILTRES & df_selection 
 # =========================
 
 def _reset_filters():
@@ -226,14 +227,23 @@ def _reset_filters():
 
 
 # Toggle base Transpa / Parent
-use_transpa = st.sidebar.toggle(
-    "Base Transpa",
-    value=False,
-    key="use_transpa",
-    on_change=_reset_filters,
-)
+st.sidebar.header("Source des données")
+col1, col2 = st.sidebar.columns([1, 3])
 
-
+with col1:
+    use_transpa = st.toggle(
+        "",
+        value=False,
+        key="use_transpa",
+        on_change=_reset_filters,
+    )
+    
+with col2:
+    source_label= "Base Transpa" if use_transpa else "Base Parent"
+    st.markdown(
+        f"<p style='color: white; font-weight: 600; padding-top:6px;'>{source_label}</p>",
+        unsafe_allow_html=True,
+    )
 
 
 # ---- Dataframe actif selon le toggle pour TOUTE l'application ----
@@ -256,18 +266,36 @@ if not date_col:
     st.error(f"Aucune colonne trouvée parmi {Date_candidate}. Colonnes: {df.columns.tolist()}")
     st.stop()
 
-# ---- Affichage de la source active ----
-st.sidebar.markdown(f"Source active : **{'Base Transpa' if use_transpa else 'Base Parent'}**")
-
 # ---- Switcher Filtres ----
-st.sidebar.header("Filtres")
 
 # ---- Filtre des dates ----
+st.sidebar.subheader("Période d'analyse")
 df[date_col] = pd.to_datetime(df[date_col], errors='coerce', dayfirst=True)
 
 # On récupère les dates uniques normalisées
 dates_uniques = df[date_col].dropna().dt.normalize().unique()
 dates_uniques = pd.to_datetime(sorted(dates_uniques))
+
+# filtrage: fin de mois ou date la plus proche
+def filter_end_of_month(dates):
+    result = []
+    # Grouper par année et mois
+    df_dates = pd.DataFrame({'date': dates})
+    df_dates['month_key'] = df_dates['date'].dt.to_period('M')
+    
+    for period, group in df_dates.groupby('month_key'):
+        # Calcule de la vraie fin de mois
+        fin_mois = (period.to_timestamp() + MonthEnd(0)).normalize()
+        
+        if fin_mois in group['date'].values:
+            # La fin de mois est présente, on la prend
+            result.append(fin_mois)
+        else:
+            # Si la fin de mois n'est pas présente, prendre la date la plus proche
+            result.append(group['date'].max())  # La date la plus récente du mois disponible
+    
+    return pd.to_datetime(sorted(result))
+            
 
 n = len(dates_uniques)
 idx_end = n - 1                # date la plus récente
@@ -295,6 +323,8 @@ if date_debut > date_fin:
     st.sidebar.info("Les dates ont été inversées pour former un intervalle valide.")
 
 # ---- Sélection du Portefeuille ----
+
+st.sidebar.subheader("Portefeuille")
 if "GROUPE" not in df.columns:
     st.error("Colonne 'GROUPE' manquante dans la base.")
     st.stop()
@@ -304,13 +334,14 @@ if "EPS" not in groupes:
     groupes.insert(0, "EPS")  # On force l'option EPS
 
 portefeuil = st.sidebar.radio(
-    "Choisir le Portefeuille",
+    "",
     options=groupes,
     index=groupes.index("EPS") if "EPS" in groupes else 0,
     key="pf",
 )
 
 # ---- Sélection des cantons ----
+st.sidebar.subheader("Canton")
 if "CANTON" not in df.columns:
     st.error("Colonne 'CANTON' manquante dans la base.")
     st.stop()
@@ -337,7 +368,7 @@ valid = [c for c in st.session_state["canton"] if c in cantons_options]
 st.session_state["canton"] = valid or cantons_options
 
 canton = st.sidebar.multiselect(
-    "Choisir le Canton",
+    "",
     options=cantons_options,
     key="canton",
 )
