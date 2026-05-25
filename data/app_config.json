@@ -1,0 +1,23 @@
+{
+  "source_dir": "/mnt/risques/4. Risques Financiers/00-0-REPORTING/01 - HISTO SAS/0000T0",
+  "var_quantile": 0.75,
+  "default_top_n": 20,
+  "backup_enabled": false,
+  "backup_keep": 5,
+  "cookie_key": "risk_dashboard_secret_key_change_me",
+  "users": [
+    {
+      "username": "admin",
+      "role": "Admin",
+      "active": true,
+      "password_hash": "$2b$12$pSfBZqhhG6UkmnCPWBHMJ.2jL169xHk4NKz2loVDRI.oxLdCYexYC"
+    },
+    {
+      "username": "david beaulieu",
+      "role": "Admin",
+      "active": true,
+      "password_hash": "$2b$12$u6.QVUVkENeuMHAiuJ5UF.snN3shMWcn375DZF/928o4lRl2sRjZW"
+    }
+  ],
+  "admin_password": "Admin2026!!"
+}

@@ -1159,30 +1159,27 @@ def render_risque_spread_tab(df_selection: pd.DataFrame, date_debut, date_fin):
             "Spread (bp)":           fmt_bp,
         }
         # --- Filtres ---
-        mask_total = aff_det[choix_dim_affichage].astype(str).str.upper() == "TOTAL"
-        aff_corps  = aff_det[~mask_total]
-        aff_total  = aff_det[mask_total]
+        aff_corps = aff_det[aff_det[choix_dim_affichage].astype(str).str.upper() != "TOTAL"]
 
         fcol1, fcol2, fcol3, fcol4 = st.columns(4)
-
         with fcol1:
             opts_dim = sorted(aff_corps[choix_dim_affichage].dropna().astype(str).unique().tolist())
-            sel_dim  = st.multiselect(choix_dim_affichage, options=opts_dim, default=opts_dim,
+            sel_dim  = st.multiselect(choix_dim_affichage, options=opts_dim, default=[],
                                       key="det_spread_dim")
         with fcol2:
             opts_not = sorted(aff_corps["Notation"].dropna().astype(str).unique().tolist())
-            sel_not  = st.multiselect("Notation", options=opts_not, default=opts_not,
+            sel_not  = st.multiselect("Notation", options=opts_not, default=[],
                                       key="det_spread_not")
         with fcol3:
-            if "Libellé" in aff_corps.columns:
-                search_lib = st.text_input("Libellé (recherche)", value="", key="det_spread_lib")
-            else:
-                search_lib = ""
+            search_lib = st.text_input("Libellé (recherche)", value="", key="det_spread_lib") if "Libellé" in aff_corps.columns else ""
         with fcol4:
-            if "ID" in aff_corps.columns:
-                search_id = st.text_input("ID (recherche)", value="", key="det_spread_id")
-            else:
-                search_id = ""
+            top_n = st.selectbox(
+                "Top N titres",
+                options=[20, 50, 100, 0],
+                format_func=lambda x: "Tous" if x == 0 else str(x),
+                index=1,
+                key="det_spread_topn",
+            )
 
         # Application des filtres
         filtered = aff_corps.copy()
@@ -1192,25 +1189,43 @@ def render_risque_spread_tab(df_selection: pd.DataFrame, date_debut, date_fin):
             filtered = filtered[filtered["Notation"].astype(str).isin(sel_not)]
         if search_lib and "Libellé" in filtered.columns:
             filtered = filtered[filtered["Libellé"].astype(str).str.contains(search_lib, case=False, na=False)]
-        if search_id and "ID" in filtered.columns:
-            filtered = filtered[filtered["ID"].astype(str).str.contains(search_id, case=False, na=False)]
 
-        aff_det_filtered = pd.concat([filtered, aff_total], ignore_index=True)
+        nb_total = len(filtered)
+        if top_n > 0:
+            filtered = filtered.head(top_n)
+
+        # Ligne TOTAL recalculée sur le sous-ensemble filtré
+        t_fin   = filtered["VM (M€)"].sum()
+        t_delta = filtered["Δ VM (M€)"].sum()
+        t_deb   = t_fin - t_delta
+        t_pct   = (t_delta / t_deb * 100) if t_deb != 0 else np.nan
+        total_row = {c: "" for c in filtered.columns}
+        total_row[choix_dim_affichage] = "TOTAL"
+        total_row["VM (M€)"]    = t_fin
+        total_row["Δ VM (M€)"]  = t_delta
+        total_row["Δ VM (%)"]   = t_pct
+        total_row["Alloc (%)"]  = filtered["Alloc (%)"].sum()
+        total_row["Δ Alloc (%)"] = filtered["Δ Alloc (%)"].sum() if "Δ Alloc (%)" in filtered.columns else ""
+        total_row["Tendance"]   = trend(t_pct / 100 if pd.notna(t_pct) else np.nan)
+        aff_det_final = pd.concat([filtered, pd.DataFrame([total_row])], ignore_index=True)
+
+        nb_affiches = len(filtered)
+        st.caption(
+            f"{nb_affiches} titre(s) affiché(s)"
+            + (f" sur {nb_total}" if top_n > 0 and nb_affiches < nb_total else "")
+        )
 
         styled_det = apply_common_table_styles(
-            aff_det_filtered,
+            aff_det_final,
             fmt_map=fmt_map_det,
             total_cols=(choix_dim_affichage,),
             delta_meur_col="Δ VM (M€)",
             delta_pct_col="Δ VM (%)",
             tendance_col="Tendance",
         )
-        st.markdown("**Détail par titre — Spread**")
-        n_det = len(aff_det_filtered)
-        st.dataframe(styled_det, use_container_width=True, hide_index=True,
-                     height=35 * (n_det + 1) + 3)
+        render_static_dataframe(styled_det)
 
-        excel_det = df_to_excel_bytes(aff_det, sheet_name="Détail_titres_spread")
+        excel_det = df_to_excel_bytes(aff_det_final, sheet_name="Détail_titres_spread")
         st.download_button(
             label="📥 Télécharger le détail en Excel",
             data=excel_det,

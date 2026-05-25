@@ -782,13 +782,83 @@ def render_portefeuille_tab(df_selection: pd.DataFrame, use_transpa: bool, date_
     if show_detail:
 
         detail_grp = [CLASS_COL, SUBCLASS_COL, "ID", "LIBELLE"]
-        # On ne garde que les colonnes qui existent
         detail_grp = [c for c in detail_grp if c in df_filtre.columns]
 
         if len(detail_grp) >= 2:
             dff_det = df_filtre.copy()
             dff_det["DATE_TRANSPA"] = pd.to_datetime(dff_det["DATE_TRANSPA"]).dt.date
 
+            # Mapping type de gestion pour le filtre
+            _GESTION_MAP = {"1": "Mandats", "2": "Direct hors OPC", "3": "Fonds dédiés", "4": "Direct OPC"}
+            _GESTION_ORDER = ["Mandats", "Direct hors OPC", "Fonds dédiés", "Direct OPC", "Autres"]
+            has_gestion = "TYPE_GESTION_2" in dff_det.columns
+            if has_gestion:
+                dff_det["TYPE_GESTION_LIB"] = (
+                    dff_det["TYPE_GESTION_2"].astype(str).map(_GESTION_MAP).fillna("Autres")
+                )
+                types_gestion_dispo = [g for g in _GESTION_ORDER if g in dff_det["TYPE_GESTION_LIB"].unique()]
+            else:
+                types_gestion_dispo = []
+
+            # Valeurs disponibles pour les filtres structurés
+            classes_dispo = sorted(dff_det[CLASS_COL].dropna().astype(str).unique().tolist())
+
+            # --- Ligne 1 de filtres : Classe, Sous-classe, Type de gestion, Tendance ---
+            fcol1, fcol2, fcol3, fcol4 = st.columns(4)
+            with fcol1:
+                filtre_classe = st.multiselect(
+                    "Classe d'actifs", options=classes_dispo, default=[], key="det_pf_classe"
+                )
+            with fcol2:
+                sc_base = dff_det[dff_det[CLASS_COL].isin(filtre_classe)] if filtre_classe else dff_det
+                sc_dispo = sorted(sc_base[SUBCLASS_COL].dropna().astype(str).unique().tolist())
+                filtre_sous_classe = st.multiselect(
+                    "Sous-classe d'actifs", options=sc_dispo, default=[], key="det_pf_sous_classe"
+                )
+            with fcol3:
+                filtre_type_gestion = st.multiselect(
+                    "Type de gestion", options=types_gestion_dispo, default=[], key="det_pf_type_gestion"
+                ) if types_gestion_dispo else []
+            with fcol4:
+                filtre_tendance = st.multiselect(
+                    "Tendance",
+                    options=["▲ Hausse", "◆ Stable", "▼ Baisse"],
+                    default=[],
+                    key="det_pf_tendance",
+                )
+
+            # --- Ligne 2 de filtres : Libellé, ID, Top N, Tri ---
+            fcol5, fcol6, fcol7, fcol8 = st.columns(4)
+            with fcol5:
+                search_lib = st.text_input("Libellé (recherche)", value="", key="det_pf_lib")
+            with fcol6:
+                search_id = st.text_input("ID (recherche)", value="", key="det_pf_id") if "ID" in detail_grp else ""
+            with fcol7:
+                top_n = st.selectbox(
+                    "Top N titres",
+                    options=[20, 50, 100, 0],
+                    format_func=lambda x: "Tous" if x == 0 else str(x),
+                    index=1,
+                    key="det_pf_topn",
+                )
+            with fcol8:
+                sort_col_choice = st.selectbox(
+                    "Trier par",
+                    options=["VM (M€)", "Δ VM (M€)", "Δ VM (%)", "Alloc (%)"],
+                    index=0,
+                    key="det_pf_sort_col",
+                )
+                sort_asc = st.checkbox("Ordre croissant", value=False, key="det_pf_sort_asc")
+
+            # --- Pré-filtrage de df avant groupby ---
+            if filtre_classe:
+                dff_det = dff_det[dff_det[CLASS_COL].isin(filtre_classe)]
+            if filtre_sous_classe:
+                dff_det = dff_det[dff_det[SUBCLASS_COL].isin(filtre_sous_classe)]
+            if filtre_type_gestion and has_gestion:
+                dff_det = dff_det[dff_det["TYPE_GESTION_LIB"].isin(filtre_type_gestion)]
+
+            # --- Groupby & calculs ---
             debut_det = (
                 dff_det[dff_det["DATE_TRANSPA"] == d0]
                 .groupby(detail_grp, dropna=False)["VM_INIT"]
@@ -810,88 +880,78 @@ def render_portefeuille_tab(df_selection: pd.DataFrame, use_transpa: bool, date_
             )
             res_det["Tendance"] = res_det["Delta_VM_pct"].apply(trend)
 
-            # Ligne TOTAL
-            total_det = {
-                CLASS_COL: "TOTAL", SUBCLASS_COL: "",
-                "VM_DEBUT": res_det["VM_DEBUT"].sum(),
-                "VM_FIN": res_det["VM_FIN"].sum(),
-                "Delta_VM": res_det["Delta_VM"].sum(),
-            }
-            for c in detail_grp:
-                if c not in total_det:
-                    total_det[c] = ""
-            t_deb = total_det["VM_DEBUT"]
-            t_fin = total_det["VM_FIN"]
-            t_delta = total_det["Delta_VM"]
-            total_det["Delta_VM_pct"] = (t_delta / t_deb) if t_deb != 0 else np.nan
-            total_det["Tendance"] = trend(total_det["Delta_VM_pct"])
-            res_det = pd.concat([res_det, pd.DataFrame([total_det])], ignore_index=True)
-
             # Passage en M€ / %
-            for c in ["VM_FIN", "Delta_VM"]:
-                res_det[c] = res_det[c] / 1e6
+            res_det["VM_FIN"]      = res_det["VM_FIN"] / 1e6
+            res_det["Delta_VM"]    = res_det["Delta_VM"] / 1e6
             res_det["Delta_VM_pct"] = res_det["Delta_VM_pct"] * 100
 
             res_det = add_alloc_columns(res_det, vm_fin_col="VM_FIN", delta_vm_col="Delta_VM")
 
-            # Renommage pour affichage
+            # Renommage
             rename_det = {
-                CLASS_COL: "Classe d'actifs",
+                CLASS_COL:    "Classe d'actifs",
                 SUBCLASS_COL: "Sous-classe d'actifs",
-                "ID": "ID",
-                "LIBELLE": "Libellé",
-                "VM_FIN": "VM (M€)",
-                "Delta_VM": "Δ VM (M€)",
+                "ID":         "ID",
+                "LIBELLE":    "Libellé",
+                "VM_FIN":     "VM (M€)",
+                "Delta_VM":   "Δ VM (M€)",
                 "Delta_VM_pct": "Δ VM (%)",
-                "Tendance": "Tendance",
+                "Tendance":   "Tendance",
             }
-            det_cols = [c for c in detail_grp + ["VM_FIN", "Delta_VM", "Delta_VM_pct", "Tendance", "Alloc (%)", "Δ Alloc (%)"] if c in res_det.columns]
+            det_cols = [
+                c for c in detail_grp + ["VM_FIN", "Delta_VM", "Delta_VM_pct", "Tendance", "Alloc (%)", "Δ Alloc (%)"]
+                if c in res_det.columns
+            ]
             aff_det = res_det[det_cols].rename(columns=rename_det)
 
-            # Même ordre que le tableau principal (hors TOTAL)
-            mask_total = aff_det.apply(lambda r: "TOTAL" in r.astype(str).values, axis=1)
-            aff_det_data = sort_portefeuille_pdf(aff_det[~mask_total])
-            aff_det_total = aff_det[mask_total]
-            aff_det = pd.concat([aff_det_data, aff_det_total], ignore_index=True)
+            # Tri initial par ordre classe/sous-classe
+            aff_det = sort_portefeuille_pdf(aff_det)
 
+            # --- Filtres post-calcul : Libellé, ID, Tendance ---
+            if search_lib and "Libellé" in aff_det.columns:
+                aff_det = aff_det[aff_det["Libellé"].astype(str).str.contains(search_lib, case=False, na=False)]
+            if search_id and "ID" in aff_det.columns:
+                aff_det = aff_det[aff_det["ID"].astype(str).str.contains(search_id, case=False, na=False)]
+            if filtre_tendance and "Tendance" in aff_det.columns:
+                aff_det = aff_det[aff_det["Tendance"].isin(filtre_tendance)]
 
-            # --- Filtres ---
-            mask_total_det = aff_det.apply(lambda r: "TOTAL" in r.astype(str).values, axis=1)
-            aff_corps_det  = aff_det[~mask_total_det]
-            aff_total_det  = aff_det[mask_total_det]
+            # --- Tri par colonne choisie ---
+            if sort_col_choice in aff_det.columns:
+                aff_det = aff_det.sort_values(sort_col_choice, ascending=sort_asc)
 
-            fcol1, fcol2 = st.columns(2)
+            # --- Top N ---
+            nb_total = len(aff_det)
+            if top_n > 0:
+                aff_det = aff_det.head(top_n)
 
-            with fcol1:
-                if "Libellé" in aff_corps_det.columns:
-                    search_lib = st.text_input("Libellé (recherche)", value="", key="det_pf_lib")
-                else:
-                    search_lib = ""
-            with fcol2:
-                if "ID" in aff_corps_det.columns:
-                    search_id = st.text_input("ID (recherche)", value="", key="det_pf_id")
-                else:
-                    search_id = ""
+            # --- Ligne TOTAL recalculée sur le sous-ensemble filtré ---
+            total_det = {c: "" for c in aff_det.columns}
+            first_col = aff_det.columns[0]
+            total_det[first_col] = "TOTAL"
+            for num_col in ["VM (M€)", "Δ VM (M€)", "Alloc (%)", "Δ Alloc (%)"]:
+                if num_col in aff_det.columns:
+                    total_det[num_col] = aff_det[num_col].sum()
+            t_deb_raw = res_det["VM_DEBUT"].sum()
+            t_fin_raw = aff_det["VM (M€)"].sum() * 1e6 if "VM (M€)" in aff_det.columns else 0
+            t_delta_raw = aff_det["Δ VM (M€)"].sum() * 1e6 if "Δ VM (M€)" in aff_det.columns else 0
+            if "Δ VM (%)" in aff_det.columns:
+                total_det["Δ VM (%)"] = (t_delta_raw / t_deb_raw * 100) if t_deb_raw != 0 else np.nan
+            if "Tendance" in aff_det.columns:
+                total_det["Tendance"] = trend(t_delta_raw / t_deb_raw if t_deb_raw != 0 else np.nan)
 
-            # Application des filtres
-            filtered_det = aff_corps_det.copy()
-            if search_lib and "Libellé" in filtered_det.columns:
-                filtered_det = filtered_det[filtered_det["Libellé"].astype(str).str.contains(search_lib, case=False, na=False)]
-            if search_id and "ID" in filtered_det.columns:
-                filtered_det = filtered_det[filtered_det["ID"].astype(str).str.contains(search_id, case=False, na=False)]
+            aff_det_final = pd.concat([aff_det, pd.DataFrame([total_det])], ignore_index=True)
 
-            aff_det_filtered = pd.concat([filtered_det, aff_total_det], ignore_index=True)
-
-            styler_det = apply_common_table_styles(aff_det_filtered)
-            st.markdown("**Détail par titre**")
-            n_det = len(aff_det_filtered)
-            st.dataframe(
-                styler_det,
-                use_container_width=True,
-                hide_index=True,
-                height=35 * (n_det + 1) + 3,
+            # --- Affichage ---
+            nb_affiches = len(aff_det)
+            st.caption(
+                f"{nb_affiches} titre(s) affiché(s)"
+                + (f" sur {nb_total}" if top_n > 0 and nb_affiches < nb_total else "")
             )
-            excel_det = df_to_excel_bytes(aff_det, sheet_name="Détail_titres")
+            styler_det = apply_common_table_styles(aff_det_final)
+            render_static_dataframe(styler_det)
+
+            # Export du sous-ensemble affiché (filtré)
+            excel_det = df_to_excel_bytes(aff_det_final, sheet_name="Détail_titres")
             st.download_button(
                 label="📥Télécharger le détail en Excel",
                 data=excel_det,

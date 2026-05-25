@@ -1,17 +1,13 @@
 # dashboard/modules/risque_taux.py
 
 import pandas as pd
-import numpy as np
 import streamlit as st
 import plotly.express as px
 from typing import Tuple, List, Optional
 
 from modules.risque_action import _pick_first_existing_col
 from modules.format_utils import (
-    trend,
     fmt_meur,
-    fmt_delta_meur,
-    fmt_pct,
     df_to_excel_bytes,
     apply_common_table_styles,
     render_static_dataframe,
@@ -507,6 +503,203 @@ def build_taux_var_block(
     }
 
 # ==========================================================
+# Détail par titre
+# ==========================================================
+
+def _build_detail_titres_table(
+    dff: pd.DataFrame,
+    d1: pd.Timestamp,
+    filtre_sous_classe: List[str],
+    filtre_type_gestion: List[str],
+    filtre_duration: List[str],
+    top_n: int,
+) -> Optional[pd.DataFrame]:
+    """
+    Construit le tableau détail par titre à la date d1, après application
+    des filtres locaux (sous-classe, type de gestion, duration, top N).
+    Retourne (df_detail, nb_total_avant_top) ou None si vide.
+    """
+    df = dff[dff["DATE_TRANSPA"] == d1.date()].copy()
+    if df.empty:
+        return None
+
+    # Mapping type de gestion
+    df["TYPE_GESTION_2"] = df["TYPE_GESTION_2"].astype(str)
+    df["TYPE_GESTION_LIB"] = df["TYPE_GESTION_2"].map(MAPPING_GESTION).fillna("Autres")
+
+    # VM numérique, on garde uniquement les titres avec VM > 0
+    df["VM_INIT"] = pd.to_numeric(df["VM_INIT"], errors="coerce").fillna(0.0)
+    df = df[df["VM_INIT"] > 0].copy()
+    if df.empty:
+        return None
+
+    # Application des filtres locaux
+    if filtre_sous_classe:
+        df = df[df["SOUS_CLASSIF_RF"].isin(filtre_sous_classe)]
+    if filtre_type_gestion:
+        df = df[df["TYPE_GESTION_LIB"].isin(filtre_type_gestion)]
+    if filtre_duration:
+        df = df[df["SEGMENT_DURATION"].isin(filtre_duration)]
+    if df.empty:
+        return None
+
+    nb_total = len(df)
+
+    # VaR titre = écart absolu entre VM stressée et VM_INIT
+    for c in ["VM_PMVL_TAUX_VAR95", "VM_PMVL_TAUX_VAR99"]:
+        df[c] = pd.to_numeric(df[c], errors="coerce").fillna(df["VM_INIT"])
+
+    df["VM_MEUR"]  = df["VM_INIT"] / 1e6
+    df["VAR95_MEUR"] = (df["VM_PMVL_TAUX_VAR95"] - df["VM_INIT"]).abs() / 1e6
+    df["VAR99_MEUR"] = (df["VM_PMVL_TAUX_VAR99"] - df["VM_INIT"]).abs() / 1e6
+
+    total_vm = df["VM_MEUR"].sum()
+    df["ALLOC"] = df["VM_MEUR"] / total_vm if total_vm > 0 else 0.0
+
+    # Tri par VM décroissante puis top N
+    df = df.sort_values("VM_MEUR", ascending=False)
+    if top_n > 0:
+        df = df.head(top_n)
+
+    result = df[
+        ["LIBELLE", "SOUS_CLASSIF_RF", "TYPE_GESTION_LIB",
+         "SEGMENT_DURATION", "VM_MEUR", "ALLOC",
+         "VAR95_MEUR", "VAR99_MEUR"]
+    ].rename(columns={
+        "LIBELLE":          "Libellé",
+        "SOUS_CLASSIF_RF":  "Sous-classe d'actif",
+        "TYPE_GESTION_LIB": "Type de gestion",
+        "SEGMENT_DURATION": "Duration",
+        "VM_MEUR":          "VM (M€)",
+        "ALLOC":            "Alloc (%)",
+        "VAR95_MEUR":       "VaR 95% (M€)",
+        "VAR99_MEUR":       "VaR 99% (M€)",
+    })
+
+    # Ligne TOTAL
+    total_row = {c: "" for c in result.columns}
+    total_row["Libellé"]      = "TOTAL"
+    total_row["VM (M€)"]      = result["VM (M€)"].sum()
+    total_row["Alloc (%)"]    = result["Alloc (%)"].sum()
+    total_row["VaR 95% (M€)"] = result["VaR 95% (M€)"].sum()
+    total_row["VaR 99% (M€)"] = result["VaR 99% (M€)"].sum()
+    result = pd.concat([result, pd.DataFrame([total_row])], ignore_index=True)
+
+    return result, nb_total
+
+
+def _render_detail_titres_section(dff: pd.DataFrame, d1: pd.Timestamp):
+    """
+    Affiche les filtres locaux + tableau détail par titre pour le risque taux.
+    """
+    df_d1 = dff[dff["DATE_TRANSPA"] == d1.date()].copy()
+    if df_d1.empty:
+        st.info("Aucune donnée disponible pour le détail par titre.")
+        return
+
+    # Mapping gestion pour peupler les filtres
+    df_d1["TYPE_GESTION_2"] = df_d1["TYPE_GESTION_2"].astype(str)
+    df_d1["TYPE_GESTION_LIB"] = df_d1["TYPE_GESTION_2"].map(MAPPING_GESTION).fillna("Autres")
+
+    # Valeurs disponibles pour les filtres
+    sous_classes_dispo = sorted(df_d1["SOUS_CLASSIF_RF"].dropna().unique().tolist())
+    type_gestion_dispo  = [g for g in GESTION_ORDER if g in df_d1["TYPE_GESTION_LIB"].unique()]
+    durations_dispo     = []
+    if "NUM_SEGMENT" in df_d1.columns:
+        durations_dispo = (
+            df_d1.dropna(subset=["SEGMENT_DURATION"])
+            .groupby("SEGMENT_DURATION")["NUM_SEGMENT"]
+            .min()
+            .sort_values()
+            .index.tolist()
+        )
+    else:
+        durations_dispo = sorted(df_d1["SEGMENT_DURATION"].dropna().unique().tolist())
+
+    # --- Filtres ---
+    col_f1, col_f2, col_f3, col_f4 = st.columns([2, 2, 2, 1])
+    with col_f1:
+        filtre_sous_classe = st.multiselect(
+            "Sous-classe d'actif",
+            options=sous_classes_dispo,
+            default=[],
+            key="detail_taux_sous_classe",
+        )
+    with col_f2:
+        filtre_type_gestion = st.multiselect(
+            "Type de gestion",
+            options=type_gestion_dispo,
+            default=[],
+            key="detail_taux_type_gestion",
+        )
+    with col_f3:
+        filtre_duration = st.multiselect(
+            "Segment duration",
+            options=durations_dispo,
+            default=[],
+            key="detail_taux_duration",
+        )
+    with col_f4:
+        top_n = st.selectbox(
+            "Top N titres",
+            options=[10, 20, 50, 100, 0],
+            format_func=lambda x: "Tous" if x == 0 else str(x),
+            index=1,
+            key="detail_taux_topn",
+        )
+
+    # --- Construction du tableau ---
+    result = _build_detail_titres_table(
+        dff, d1,
+        filtre_sous_classe,
+        filtre_type_gestion,
+        filtre_duration,
+        top_n,
+    )
+
+    if result is None:
+        st.info("Aucun titre ne correspond aux filtres sélectionnés.")
+        return
+
+    df_detail, nb_total = result
+    nb_affiches = len(df_detail)
+
+    st.caption(
+        f"{nb_affiches} titre(s) affiché(s)"
+        + (f" sur {nb_total}" if top_n > 0 and nb_affiches < nb_total else "")
+        + f" — total VM : {fmt_meur(df_detail['VM (M€)'].sum())}"
+    )
+
+    # Seuil calculé hors ligne TOTAL — percentile lu depuis la config (défaut : Q3 = 0.75)
+    _var99_vals = pd.to_numeric(
+        df_detail.loc[df_detail["Libellé"] != "TOTAL", "VaR 99% (M€)"], errors="coerce"
+    )
+    _q = st.session_state.get("app_config", {}).get("var_quantile", 0.75)
+    seuil_var99 = _var99_vals.quantile(_q)
+
+    def _highlight_var99(val):
+        try:
+            if float(val) >= seuil_var99:
+                return "background-color: #f8d7da; color: #842029; font-weight: bold"
+        except (TypeError, ValueError):
+            pass
+        return ""
+
+    styler_det = apply_common_table_styles(df_detail).map(
+        _highlight_var99, subset=["VaR 99% (M€)"]
+    )
+    render_static_dataframe(styler_det)
+
+    excel_bytes = df_to_excel_bytes(df_detail, sheet_name="Risque_Taux_Titres")
+    st.download_button(
+        label="📥 Télécharger en Excel",
+        data=excel_bytes,
+        file_name="risque_taux_detail_titres.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
+# ==========================================================
 # Render principal
 # ==========================================================
 
@@ -531,7 +724,6 @@ def render_risque_taux_tab(df_selection: pd.DataFrame, date_debut, date_fin):
         return
 
     view_table = duration_block["view_table"]
-    pivot_meur = duration_block["pivot_meur"]
     cols_gestion = duration_block["cols_gestion"]
     order_duration = duration_block["order_duration"]
     fig_stack = duration_block["fig_stack"]
@@ -609,6 +801,14 @@ def render_risque_taux_tab(df_selection: pd.DataFrame, date_debut, date_fin):
             st.plotly_chart(fig_var_seg, use_container_width=True, config={"displayModeBar": "hover"})
         with col_var_tot_graph:
             st.plotly_chart(fig_var_tot, use_container_width=True, config={"displayModeBar": "hover"})
+
+    # --------------------------------------------------------------
+    # 4) Détail par titre
+    # --------------------------------------------------------------
+    st.markdown("---")
+    show_detail = st.toggle("Afficher le détail par titre", value=False, key="taux_detail_toggle")
+    if show_detail:
+        _render_detail_titres_section(dff, d1)
 
     # Stockage pour l'onglet Rapport
     st.session_state["rapport_taux"] = {

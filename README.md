@@ -11,24 +11,94 @@ streamlit run home.py
 
 ---
 
-## MàJ des données, monter d'abord le repertoire
+## MàJ des données — Montage du répertoire réseau
 
-a la racine du projet, faire
-~/Market_finance_risk_dashbord$ cd /mnt
+### Montage manuel (ponctuel)
 
-verifier si le dossier risques existe, avec un ls, si non on le cree
-sudo mkdir risques
+À la racine du projet :
 
-verifier les repertoires montés
+```bash
+cd /mnt
+```
+
+Vérifier si le dossier `risques` existe, sinon le créer :
+
+```bash
 ls -lrt
+sudo mkdir risques
+```
 
-on aura quelquechose comme ceci:
-drwxr-xr-x 2 root root 4096 Apr 3 09:27 risques
+Monter le partage réseau :
 
+```bash
 sudo mount -t drvfs '\\sv61file0024\Bureautique\Direction des Risques\' /mnt/risques
+```
 
-Verifier le repertoire monté
+Vérifier le répertoire monté :
+
+```bash
 ls -la "/mnt/risques/4. Risques Financiers/00-0-REPORTING/01 - HISTO SAS/0000T0"
+```
+
+---
+
+### Montage automatique au démarrage WSL (configuration permanente)
+
+Évite de retaper le mot de passe sudo à chaque session.
+
+**Étape 1 — Créer le point de montage**
+
+```bash
+sudo mkdir -p /mnt/risques
+```
+
+**Étape 2 — Activer fstab dans WSL2**
+
+```bash
+sudo nano /etc/wsl.conf
+```
+
+Ajouter ou compléter avec :
+
+```ini
+[automount]
+enabled = true
+mountFsTab = true
+```
+
+**Étape 3 — Ajouter l'entrée dans `/etc/fstab`**
+
+```bash
+sudo nano /etc/fstab
+```
+
+Ajouter cette ligne (les espaces du chemin s'écrivent `\040`) :
+
+```
+\\sv61file0024\Bureautique\Direction\040des\040Risques  /mnt/risques  drvfs  defaults,metadata  0  0
+```
+
+**Étape 4 — Tester sans redémarrer**
+
+```bash
+sudo mount -a
+ls /mnt/risques
+```
+
+Si la commande retourne sans erreur et que les fichiers sont visibles, le montage fonctionne.
+
+**Étape 5 — Rendre permanent (redémarrage WSL)**
+
+Depuis PowerShell Windows :
+
+```powershell
+wsl --shutdown
+wsl
+```
+
+Après redémarrage, `/mnt/risques` est monté automatiquement sans demande de mot de passe.
+
+> **Note :** l'accès réseau dépend de l'authentification Windows (compte AD / VPN). Si WSL démarre hors réseau, le montage échouera silencieusement — le dashboard détecte ce cas et affiche un avertissement dans l'onglet Admin > Données.
 
 Exécuter le fichier
 

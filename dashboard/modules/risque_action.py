@@ -715,6 +715,229 @@ div[data-testid="stDataFrame"] div[role="columnheader"] {
 </style>
 """
 
+_GESTION_MAP_ACTION = {"1": "Mandats", "2": "Direct hors OPC", "3": "Fonds dédiés", "4": "Direct OPC"}
+_GESTION_ORDER_ACTION = ["Mandats", "Direct hors OPC", "Fonds dédiés", "Direct OPC", "Autres"]
+
+
+def _build_detail_action_table(
+    dff: pd.DataFrame,
+    d0,
+    d1,
+    filtre_sous_classe: List[str],
+    filtre_pays: List[str],
+    filtre_secteur: List[str],
+    filtre_type_gestion: List[str],
+    search_lib: str,
+    top_n: int,
+):
+    """
+    Construit le tableau détail par titre action à la date d1 avec variation d0→d1.
+    Retourne (df_detail, nb_total) ou None si vide.
+    """
+    d0_date = pd.to_datetime(d0).date()
+    d1_date = pd.to_datetime(d1).date()
+    df1 = dff[dff["DATE_TRANSPA"] == d1_date].copy()
+    df0 = dff[dff["DATE_TRANSPA"] == d0_date].copy()
+    if df1.empty:
+        return None
+
+    # Type de gestion
+    if "TYPE_GESTION_2" in df1.columns:
+        df1["TYPE_GESTION_LIB"] = df1["TYPE_GESTION_2"].astype(str).map(_GESTION_MAP_ACTION).fillna("Autres")
+    else:
+        df1["TYPE_GESTION_LIB"] = "n.d."
+
+    # VM numérique
+    df1["VM_INIT"] = pd.to_numeric(df1["VM_INIT"], errors="coerce").fillna(0.0)
+    df1 = df1[df1["VM_INIT"] > 0].copy()
+    if df1.empty:
+        return None
+
+    # Colonnes optionnelles
+    libelle_col  = "LIBELLE"      if "LIBELLE"      in df1.columns else None
+    emetteur_col = "LIB_EMETTEUR" if "LIB_EMETTEUR" in df1.columns else None
+    pays_col     = "PAYS"         if "PAYS"         in df1.columns else None
+    secteur_col  = _pick_first_existing_col(df1, ["SECTEUR_EPS", "SECTEUR_ECO", "SECTOR"])
+    sous_cl_col  = "SOUS_CLASSIF_RF" if "SOUS_CLASSIF_RF" in df1.columns else None
+
+    # Pré-filtrage
+    if filtre_sous_classe and sous_cl_col:
+        df1 = df1[df1[sous_cl_col].isin(filtre_sous_classe)]
+    if filtre_pays and pays_col:
+        df1 = df1[df1[pays_col].isin(filtre_pays)]
+    if filtre_secteur and secteur_col:
+        df1 = df1[df1[secteur_col].isin(filtre_secteur)]
+    if filtre_type_gestion:
+        df1 = df1[df1["TYPE_GESTION_LIB"].isin(filtre_type_gestion)]
+    if search_lib and libelle_col:
+        df1 = df1[df1[libelle_col].astype(str).str.contains(search_lib, case=False, na=False)]
+    if df1.empty:
+        return None
+
+    nb_total = len(df1)
+
+    # VaR action
+    for c in ["VM_PMVL_ACTION_VAR95", "VM_PMVL_ACTION_VAR99"]:
+        if c in df1.columns:
+            df1[c] = pd.to_numeric(df1[c], errors="coerce").fillna(df1["VM_INIT"])
+        else:
+            df1[c] = df1["VM_INIT"]
+
+    df1["VAR95_MEUR"] = (df1["VM_PMVL_ACTION_VAR95"] - df1["VM_INIT"]).abs() / 1e6
+    df1["VAR99_MEUR"] = (df1["VM_PMVL_ACTION_VAR99"] - df1["VM_INIT"]).abs() / 1e6
+    df1["VM_FIN_MEUR"] = df1["VM_INIT"] / 1e6
+
+    # Variation d0→d1 par titre (ID si dispo, sinon LIBELLE)
+    id_col = "ID" if "ID" in df1.columns else libelle_col
+    if id_col and id_col in df0.columns:
+        df0["VM_INIT"] = pd.to_numeric(df0["VM_INIT"], errors="coerce").fillna(0.0)
+        vm_deb = df0.groupby(id_col)["VM_INIT"].sum().rename("VM_DEBUT") / 1e6
+        df1 = df1.merge(vm_deb.reset_index(), on=id_col, how="left")
+        df1["VM_DEBUT"] = df1["VM_DEBUT"].fillna(0.0)
+    else:
+        df1["VM_DEBUT"] = 0.0
+
+    df1["Delta_VM"]     = df1["VM_FIN_MEUR"] - df1["VM_DEBUT"]
+    df1["Delta_VM_pct"] = np.where(
+        df1["VM_DEBUT"] != 0,
+        df1["Delta_VM"] / df1["VM_DEBUT"] * 100,
+        np.nan,
+    )
+    df1["Tendance"] = (df1["Delta_VM_pct"] / 100).apply(trend)
+
+    # Alloc
+    total_vm = df1["VM_FIN_MEUR"].sum()
+    df1["ALLOC"] = df1["VM_FIN_MEUR"] / total_vm if total_vm > 0 else 0.0
+
+    # Tri + Top N
+    df1 = df1.sort_values("VM_FIN_MEUR", ascending=False)
+    if top_n > 0:
+        df1 = df1.head(top_n)
+
+    # Colonnes finales
+    col_map = {}
+    keep = []
+    if libelle_col:
+        col_map[libelle_col] = "Libellé"; keep.append(libelle_col)
+    if sous_cl_col:
+        col_map[sous_cl_col] = "Sous-classe d'actif"; keep.append(sous_cl_col)
+    col_map["TYPE_GESTION_LIB"] = "Type de gestion"; keep.append("TYPE_GESTION_LIB")
+    if emetteur_col:
+        col_map[emetteur_col] = "Emetteur"; keep.append(emetteur_col)
+    if pays_col:
+        col_map[pays_col] = "Pays"; keep.append(pays_col)
+    if secteur_col:
+        col_map[secteur_col] = "Secteur"; keep.append(secteur_col)
+    for c, lbl in [("VM_FIN_MEUR", "VM (M€)"), ("ALLOC", "Alloc (%)"),
+                   ("Delta_VM", "Δ VM (M€)"), ("Delta_VM_pct", "Δ VM (%)"),
+                   ("Tendance", "Tendance"), ("VAR95_MEUR", "VaR 95% (M€)"), ("VAR99_MEUR", "VaR 99% (M€)")]:
+        col_map[c] = lbl; keep.append(c)
+
+    result = df1[keep].rename(columns=col_map)
+
+    # Ligne TOTAL
+    t_fin   = result["VM (M€)"].sum()
+    t_delta = result["Δ VM (M€)"].sum()
+    t_deb   = t_fin - t_delta
+    t_pct   = (t_delta / t_deb * 100) if t_deb != 0 else np.nan
+    total_row = {c: "" for c in result.columns}
+    first_col = result.columns[0]
+    total_row[first_col]      = "TOTAL"
+    total_row["VM (M€)"]      = t_fin
+    total_row["Alloc (%)"]    = result["Alloc (%)"].sum()
+    total_row["Δ VM (M€)"]    = t_delta
+    total_row["Δ VM (%)"]     = t_pct
+    total_row["Tendance"]     = trend(t_delta / t_deb if t_deb != 0 else np.nan)
+    total_row["VaR 95% (M€)"] = result["VaR 95% (M€)"].sum()
+    total_row["VaR 99% (M€)"] = result["VaR 99% (M€)"].sum()
+    result = pd.concat([result, pd.DataFrame([total_row])], ignore_index=True)
+
+    return result, nb_total
+
+
+def _render_detail_action_section(dff: pd.DataFrame, d0, d1):
+    d1_date = pd.to_datetime(d1).date()
+    df_d1 = dff[dff["DATE_TRANSPA"] == d1_date].copy()
+    if df_d1.empty:
+        st.info("Aucune donnée disponible pour le détail par titre.")
+        return
+
+    # Type de gestion
+    if "TYPE_GESTION_2" in df_d1.columns:
+        df_d1["TYPE_GESTION_LIB"] = df_d1["TYPE_GESTION_2"].astype(str).map(_GESTION_MAP_ACTION).fillna("Autres")
+        types_gestion_dispo = [g for g in _GESTION_ORDER_ACTION if g in df_d1["TYPE_GESTION_LIB"].unique()]
+    else:
+        types_gestion_dispo = []
+
+    sous_cl_col = "SOUS_CLASSIF_RF" if "SOUS_CLASSIF_RF" in df_d1.columns else None
+    pays_col    = "PAYS"            if "PAYS"            in df_d1.columns else None
+    secteur_col = _pick_first_existing_col(df_d1, ["SECTEUR_EPS", "SECTEUR_ECO", "SECTOR"])
+
+    sous_classes_dispo = sorted(df_d1[sous_cl_col].dropna().unique().tolist()) if sous_cl_col else []
+    pays_dispo         = sorted(df_d1[pays_col].dropna().unique().tolist())    if pays_col    else []
+    secteurs_dispo     = sorted(df_d1[secteur_col].dropna().unique().tolist()) if secteur_col else []
+
+    # Ligne 1 de filtres
+    fc1, fc2, fc3, fc4 = st.columns(4)
+    with fc1:
+        filtre_sous_classe = st.multiselect("Sous-classe d'actif", options=sous_classes_dispo, default=[], key="det_action_sc")
+    with fc2:
+        filtre_pays = st.multiselect("Pays", options=pays_dispo, default=[], key="det_action_pays")
+    with fc3:
+        filtre_secteur = st.multiselect("Secteur", options=secteurs_dispo, default=[], key="det_action_secteur")
+    with fc4:
+        filtre_type_gestion = st.multiselect("Type de gestion", options=types_gestion_dispo, default=[], key="det_action_gestion")
+
+    # Ligne 2 de filtres
+    fc5, fc6 = st.columns([3, 1])
+    with fc5:
+        search_lib = st.text_input("Libellé (recherche)", value="", key="det_action_lib")
+    with fc6:
+        top_n = st.selectbox(
+            "Top N titres",
+            options=[20, 50, 100, 0],
+            format_func=lambda x: "Tous" if x == 0 else str(x),
+            index=1,
+            key="det_action_topn",
+        )
+
+    result = _build_detail_action_table(
+        dff, d0, d1,
+        filtre_sous_classe, filtre_pays, filtre_secteur,
+        filtre_type_gestion, search_lib, top_n,
+    )
+
+    if result is None:
+        st.info("Aucun titre ne correspond aux filtres sélectionnés.")
+        return
+
+    df_detail, nb_total = result
+    nb_affiches = len(df_detail) - 1  # hors ligne TOTAL
+
+    st.caption(
+        f"{nb_affiches} titre(s) affiché(s)"
+        + (f" sur {nb_total}" if top_n > 0 and nb_affiches < nb_total else "")
+    )
+
+    styled = apply_common_table_styles(
+        df_detail,
+        total_cols=(df_detail.columns[0],),
+        delta_meur_col="Δ VM (M€)",
+        delta_pct_col="Δ VM (%)",
+        tendance_col="Tendance",
+    )
+    render_static_dataframe(styled)
+
+    excel_bytes = df_to_excel_bytes(df_detail, sheet_name="Risque_Action_Titres")
+    st.download_button(
+        label="📥 Télécharger en Excel",
+        data=excel_bytes,
+        file_name="risque_action_detail_titres.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        key="det_action_excel",
+    )
+
+
 def render_risque_action_tab(df_selection: pd.DataFrame, date_debut, date_fin):
     st.markdown(_CSS_TABLE_HEADER, unsafe_allow_html=True)
     st.subheader("Risque Action")
@@ -918,3 +1141,11 @@ def render_risque_action_tab(df_selection: pd.DataFrame, date_debut, date_fin):
         "table_geo":     df_aff_geo,
         "table_secteur": df_aff_sect,
     }
+
+    # ======================================================
+    # Détail par titre
+    # ======================================================
+    st.markdown("---")
+    show_detail = st.toggle("Afficher le détail par titre", value=False, key="action_detail_toggle")
+    if show_detail:
+        _render_detail_action_section(dff, d0, d1)
