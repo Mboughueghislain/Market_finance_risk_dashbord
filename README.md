@@ -346,3 +346,34 @@ WSL est **meilleur que Windows** pour Python :
 - moins de bugs de compilation
 - pas de problème Visual C++
 - environnement plus stable
+
+
+
+
+
+
+
+# 1 explication positions liquidées
+Le total Δ VM du tableau de détail par titre reflète uniquement l'évolution des positions encore détenues à la date de fin, tandis que les tableaux de concentration intègrent également l'impact des positions liquidées sur la période ; la ligne "Positions liquidées" a été ajoutée pour réconcilier les deux et garantir que le total affiché correspond bien à la variation nette du portefeuille.
+
+# 2
+Ce n'est pas un bug — c'est une différence de périmètre.
+
+Tableaux du haut (−34,7 M€) :
+
+
+Delta_total = Σ(VM à d1) − Σ(VM à d0)
+Ils incluent toutes les positions de d0 et d1, y compris les titres liquidés entre les deux dates (VM_FIN=0, VM_DEBUT=X → Delta=−X).
+
+Tableau de détail (−22,5 M€) :
+
+
+Delta_total = Σ(VM_FIN) − Σ(VM_DEBUT des titres encore présents à d1)
+Il ne montre que les positions encore détenues à d1. Les titres vendus n'y apparaissent pas.
+
+La différence : 34,7 − 22,5 = 12,2 M€ = valeur de marché à d0 des positions liquidées entre d0 et d1. Ces positions tirent le delta du portefeuille vers le bas dans les tableaux du haut, mais sont absentes du tableau de détail.
+
+
+
+===============================================
+Pour appliquer le changement : dans VS Code, appuie sur Ctrl+Shift+P → "Python: Select Interpreter" → sélectionne le venv (./venv/bin/python3). Les lignes rouges devraient disparaître.
