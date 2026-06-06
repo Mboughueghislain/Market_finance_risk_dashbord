@@ -1,5 +1,6 @@
 # dashboard/modules/risque_taux.py
 
+import numpy as np
 import pandas as pd
 import streamlit as st
 import plotly.express as px
@@ -11,6 +12,7 @@ from modules.format_utils import (
     df_to_excel_bytes,
     apply_common_table_styles,
     render_static_dataframe,
+    add_alloc_columns,
 )
 
 # ==========================================================
@@ -508,87 +510,200 @@ def build_taux_var_block(
 
 def _build_detail_titres_table(
     dff: pd.DataFrame,
+    d0: pd.Timestamp,
     d1: pd.Timestamp,
     filtre_sous_classe: List[str],
     filtre_type_gestion: List[str],
     filtre_duration: List[str],
+    search_lib: str,
+    search_id: str,
     top_n: int,
-) -> Optional[pd.DataFrame]:
+    sort_asc: bool = False,
+) -> Optional[Tuple["pd.DataFrame", int]]:
     """
-    Construit le tableau détail par titre à la date d1, après application
-    des filtres locaux (sous-classe, type de gestion, duration, top N).
+    Construit le tableau détail par titre (d1), avec Alloc à d0 et d1.
     Retourne (df_detail, nb_total_avant_top) ou None si vide.
     """
-    df = dff[dff["DATE_TRANSPA"] == d1.date()].copy()
-    if df.empty:
+    df1 = dff[dff["DATE_TRANSPA"] == d1.date()].copy()
+    df0 = dff[dff["DATE_TRANSPA"] == d0.date()].copy()
+    if df1.empty:
         return None
 
-    # Mapping type de gestion
-    df["TYPE_GESTION_2"] = df["TYPE_GESTION_2"].astype(str)
-    df["TYPE_GESTION_LIB"] = df["TYPE_GESTION_2"].map(MAPPING_GESTION).fillna("Autres")
+    id_col = "ID" if "ID" in df1.columns else None
 
-    # VM numérique, on garde uniquement les titres avec VM > 0
-    df["VM_INIT"] = pd.to_numeric(df["VM_INIT"], errors="coerce").fillna(0.0)
-    df = df[df["VM_INIT"] > 0].copy()
-    if df.empty:
+    for sub in (df1, df0):
+        sub["TYPE_GESTION_2"]  = sub["TYPE_GESTION_2"].astype(str)
+        sub["TYPE_GESTION_LIB"] = sub["TYPE_GESTION_2"].map(MAPPING_GESTION).fillna("Autres")
+        sub["VM_INIT"] = pd.to_numeric(sub["VM_INIT"], errors="coerce").fillna(0.0)
+
+    df1 = df1[df1["VM_INIT"] > 0].copy()
+    if df1.empty:
         return None
 
-    # Application des filtres locaux
     if filtre_sous_classe:
-        df = df[df["SOUS_CLASSIF_RF"].isin(filtre_sous_classe)]
+        df1 = df1[df1["SOUS_CLASSIF_RF"].isin(filtre_sous_classe)]
     if filtre_type_gestion:
-        df = df[df["TYPE_GESTION_LIB"].isin(filtre_type_gestion)]
+        df1 = df1[df1["TYPE_GESTION_LIB"].isin(filtre_type_gestion)]
     if filtre_duration:
-        df = df[df["SEGMENT_DURATION"].isin(filtre_duration)]
-    if df.empty:
+        df1 = df1[df1["SEGMENT_DURATION"].isin(filtre_duration)]
+    if df1.empty:
         return None
 
-    nb_total = len(df)
-
-    # VaR titre = écart absolu entre VM stressée et VM_INIT
     for c in ["VM_PMVL_TAUX_VAR95", "VM_PMVL_TAUX_VAR99"]:
-        df[c] = pd.to_numeric(df[c], errors="coerce").fillna(df["VM_INIT"])
+        df1[c] = pd.to_numeric(df1[c], errors="coerce").fillna(df1["VM_INIT"])
+    df1["VM_MEUR"]    = df1["VM_INIT"] / 1e6
+    df1["VAR95_MEUR"] = (df1["VM_PMVL_TAUX_VAR95"] - df1["VM_INIT"]).abs() / 1e6
+    df1["VAR99_MEUR"] = (df1["VM_PMVL_TAUX_VAR99"] - df1["VM_INIT"]).abs() / 1e6
 
-    df["VM_MEUR"]  = df["VM_INIT"] / 1e6
-    df["VAR95_MEUR"] = (df["VM_PMVL_TAUX_VAR95"] - df["VM_INIT"]).abs() / 1e6
-    df["VAR99_MEUR"] = (df["VM_PMVL_TAUX_VAR99"] - df["VM_INIT"]).abs() / 1e6
+    # Colonnes de regroupement — mêmes pour d0 et d1 pour cohérence du Delta_VM
+    grp_cols = (["ID"] if id_col else []) + ["LIBELLE"]
+    for c in ["SOUS_CLASSIF_RF", "TYPE_GESTION_LIB", "SEGMENT_DURATION"]:
+        if c in df1.columns:
+            grp_cols.append(c)
 
-    total_vm = df["VM_MEUR"].sum()
-    df["ALLOC"] = df["VM_MEUR"] / total_vm if total_vm > 0 else 0.0
+    # Agrégation d1
+    agg = (
+        df1.groupby(grp_cols, dropna=False)[["VM_MEUR", "VAR95_MEUR", "VAR99_MEUR"]]
+        .sum()
+        .reset_index()
+    )
 
-    # Tri par VM décroissante puis top N
-    df = df.sort_values("VM_MEUR", ascending=False)
+    # Agrégation d0 sur les mêmes colonnes → VM_DEBUT cohérent
+    d0_grp = [c for c in grp_cols if c in df0.columns]
+    if not df0.empty and d0_grp:
+        vm_debut = (
+            df0.groupby(d0_grp, dropna=False)["VM_INIT"]
+            .sum()
+            .rename("VM_DEBUT")
+            / 1e6
+        ).reset_index()
+        agg = agg.merge(vm_debut, on=d0_grp, how="left")
+    agg["VM_DEBUT"] = agg["VM_DEBUT"].fillna(0.0) if "VM_DEBUT" in agg.columns else 0.0
+
+    agg["Delta_VM"] = agg["VM_MEUR"] - agg["VM_DEBUT"]
+    agg["Delta_VM_pct"] = np.where(
+        agg["VM_DEBUT"] != 0,
+        agg["Delta_VM"] / agg["VM_DEBUT"] * 100,
+        np.nan,
+    )
+
+    # Positions liquidées : présentes en d0 mais absentes de agg à d1
+    vm_liquidee = 0.0
+    if not df0.empty and d0_grp:
+        df0_filt = df0.copy()
+        if filtre_sous_classe:
+            df0_filt = df0_filt[df0_filt["SOUS_CLASSIF_RF"].isin(filtre_sous_classe)] if "SOUS_CLASSIF_RF" in df0_filt.columns else df0_filt
+        if filtre_type_gestion:
+            df0_filt = df0_filt[df0_filt["TYPE_GESTION_LIB"].isin(filtre_type_gestion)] if "TYPE_GESTION_LIB" in df0_filt.columns else df0_filt
+        if filtre_duration:
+            df0_filt = df0_filt[df0_filt["SEGMENT_DURATION"].isin(filtre_duration)] if "SEGMENT_DURATION" in df0_filt.columns else df0_filt
+        d0_all = (
+            df0_filt.groupby(d0_grp, dropna=False)["VM_INIT"]
+            .sum()
+            .reset_index()
+            .rename(columns={"VM_INIT": "_VM_D0"})
+        )
+        d1_keys = agg[d0_grp].drop_duplicates()
+        sold = d0_all.merge(d1_keys, on=d0_grp, how="left", indicator=True)
+        sold = sold[sold["_merge"] == "left_only"]
+        vm_liquidee = float(sold["_VM_D0"].sum()) / 1e6
+
+    # Totaux sur la totalité de agg (avant filtre texte) pour la ligne TOTAL
+    total_vm_all    = float(agg["VM_MEUR"].sum())
+    total_delta_all = float(agg["Delta_VM"].sum()) - vm_liquidee
+    total_var95_all = float(agg["VAR95_MEUR"].sum())
+    total_var99_all = float(agg["VAR99_MEUR"].sum())
+
+    # Filtre ID (après agrégation)
+    if search_lib:
+        agg = agg[agg["LIBELLE"].astype(str).str.contains(search_lib, case=False, na=False)]
+    if search_id and id_col:
+        agg = agg[agg["ID"].astype(str).str.contains(search_id, case=False, na=False)]
+    if agg.empty:
+        return None
+
+    nb_total = len(agg)
+
+    # Tri par VM décroissante, puis séparation top_n / autres
+    agg = agg.sort_values("VM_MEUR", ascending=sort_asc)
     if top_n > 0:
-        df = df.head(top_n)
+        df_top    = agg.head(top_n).copy()
+        df_autres = agg.iloc[top_n:].copy()
+    else:
+        df_top    = agg.copy()
+        df_autres = pd.DataFrame()
 
-    result = df[
-        ["LIBELLE", "SOUS_CLASSIF_RF", "TYPE_GESTION_LIB",
-         "SEGMENT_DURATION", "VM_MEUR", "ALLOC",
-         "VAR95_MEUR", "VAR99_MEUR"]
-    ].rename(columns={
+    cols = (["ID"] if id_col else []) + [
+        "LIBELLE", "SOUS_CLASSIF_RF", "TYPE_GESTION_LIB", "SEGMENT_DURATION",
+        "VM_MEUR", "VM_DEBUT", "Delta_VM", "Delta_VM_pct", "VAR95_MEUR", "VAR99_MEUR",
+    ]
+    result = df_top[[c for c in cols if c in df_top.columns]].copy()
+
+    # Ligne "Autres" — agrège toutes les lignes hors top N
+    if not df_autres.empty:
+        a_delta = df_autres["Delta_VM"].sum()
+        a_deb   = df_autres["VM_DEBUT"].sum()
+        autres_row = {
+            "LIBELLE":          "Autres",
+            "SOUS_CLASSIF_RF":  "",
+            "TYPE_GESTION_LIB": "",
+            "SEGMENT_DURATION": "",
+            "VM_MEUR":          df_autres["VM_MEUR"].sum(),
+            "VM_DEBUT":         a_deb,
+            "Delta_VM":         a_delta,
+            "Delta_VM_pct":     (a_delta / a_deb * 100) if a_deb != 0 else np.nan,
+            "VAR95_MEUR":       df_autres["VAR95_MEUR"].sum(),
+            "VAR99_MEUR":       df_autres["VAR99_MEUR"].sum(),
+        }
+        if id_col:
+            autres_row["ID"] = ""
+        result = pd.concat([result, pd.DataFrame([autres_row])], ignore_index=True)
+
+    # Alloc (%) et Δ Alloc (%) — basés sur VM_total à d0 et d1 (top + autres = 100 %)
+    result = add_alloc_columns(result, vm_fin_col="VM_MEUR", delta_vm_col="Delta_VM")
+    result = result.drop(columns=["VM_DEBUT"])
+
+    rename_map = {
         "LIBELLE":          "Libellé",
         "SOUS_CLASSIF_RF":  "Sous-classe d'actif",
         "TYPE_GESTION_LIB": "Type de gestion",
         "SEGMENT_DURATION": "Duration",
         "VM_MEUR":          "VM (M€)",
-        "ALLOC":            "Alloc (%)",
+        "Delta_VM":         "Δ VM (M€)",
+        "Delta_VM_pct":     "Δ VM (%)",
         "VAR95_MEUR":       "VaR 95% (M€)",
         "VAR99_MEUR":       "VaR 99% (M€)",
-    })
+    }
+    result = result.rename(columns=rename_map)
 
-    # Ligne TOTAL
+    # Ligne Positions liquidées
+    if vm_liquidee > 0:
+        liq_row = {c: "" for c in result.columns}
+        liq_row["Libellé"]      = "Positions liquidées"
+        liq_row["VM (M€)"]      = 0.0
+        liq_row["Δ VM (M€)"]    = -vm_liquidee
+        liq_row["Δ VM (%)"]     = -100.0
+        liq_row["VaR 95% (M€)"] = 0.0
+        liq_row["VaR 99% (M€)"] = 0.0
+        result = pd.concat([result, pd.DataFrame([liq_row])], ignore_index=True)
+
+    # Ligne TOTAL (inclut les positions liquidées)
+    t_deb = total_vm_all - total_delta_all
     total_row = {c: "" for c in result.columns}
     total_row["Libellé"]      = "TOTAL"
-    total_row["VM (M€)"]      = result["VM (M€)"].sum()
-    total_row["Alloc (%)"]    = result["Alloc (%)"].sum()
-    total_row["VaR 95% (M€)"] = result["VaR 95% (M€)"].sum()
-    total_row["VaR 99% (M€)"] = result["VaR 99% (M€)"].sum()
+    total_row["VM (M€)"]      = total_vm_all
+    total_row["Δ VM (M€)"]    = total_delta_all
+    total_row["Δ VM (%)"]     = (total_delta_all / t_deb * 100) if t_deb != 0 else np.nan
+    total_row["Alloc (%)"]    = 100.0
+    total_row["Δ Alloc (%)"]  = 0.0
+    total_row["VaR 95% (M€)"] = total_var95_all
+    total_row["VaR 99% (M€)"] = total_var99_all
     result = pd.concat([result, pd.DataFrame([total_row])], ignore_index=True)
 
     return result, nb_total
 
 
-def _render_detail_titres_section(dff: pd.DataFrame, d1: pd.Timestamp):
+def _render_detail_titres_section(dff: pd.DataFrame, d0: pd.Timestamp, d1: pd.Timestamp):
     """
     Affiche les filtres locaux + tableau détail par titre pour le risque taux.
     """
@@ -640,21 +755,33 @@ def _render_detail_titres_section(dff: pd.DataFrame, d1: pd.Timestamp):
             key="detail_taux_duration",
         )
     with col_f4:
+        _cfg_top_n  = st.session_state.get("app_config", {}).get("default_top_n", 20)
+        _opts_topn  = [10, 20, 50, 100, 0]
         top_n = st.selectbox(
             "Top N titres",
-            options=[10, 20, 50, 100, 0],
+            options=_opts_topn,
             format_func=lambda x: "Tous" if x == 0 else str(x),
-            index=1,
+            index=_opts_topn.index(_cfg_top_n) if _cfg_top_n in _opts_topn else 1,
             key="detail_taux_topn",
         )
+        sort_asc = st.checkbox("Ordre croissant", value=False, key="detail_taux_sort_asc")
+
+    st_col1, st_col2 = st.columns(2)
+    with st_col1:
+        search_lib = st.text_input("Libellé (recherche)", value="", key="detail_taux_lib")
+    with st_col2:
+        search_id = st.text_input("ID (recherche)", value="", key="detail_taux_id")
 
     # --- Construction du tableau ---
     result = _build_detail_titres_table(
-        dff, d1,
+        dff, d0, d1,
         filtre_sous_classe,
         filtre_type_gestion,
         filtre_duration,
+        search_lib,
+        search_id,
         top_n,
+        sort_asc,
     )
 
     if result is None:
@@ -662,18 +789,18 @@ def _render_detail_titres_section(dff: pd.DataFrame, d1: pd.Timestamp):
         return
 
     df_detail, nb_total = result
-    nb_affiches = len(df_detail)
+    # Nombre de titres = lignes hors "Autres" et "TOTAL"
+    nb_affiches = len(df_detail[~df_detail["Libellé"].isin(["Autres", "TOTAL", "Positions liquidées"])])
 
     st.caption(
         f"{nb_affiches} titre(s) affiché(s)"
         + (f" sur {nb_total}" if top_n > 0 and nb_affiches < nb_total else "")
-        + f" — total VM : {fmt_meur(df_detail['VM (M€)'].sum())}"
+        + f" — total VM : {fmt_meur(df_detail.loc[df_detail['Libellé'] == 'TOTAL', 'VM (M€)'].sum())}"
     )
 
-    # Seuil calculé hors ligne TOTAL — percentile lu depuis la config (défaut : Q3 = 0.75)
-    _var99_vals = pd.to_numeric(
-        df_detail.loc[df_detail["Libellé"] != "TOTAL", "VaR 99% (M€)"], errors="coerce"
-    )
+    # Seuil VaR 99% hors lignes spéciales
+    _mask_data = ~df_detail["Libellé"].isin(["Autres", "TOTAL"])
+    _var99_vals = pd.to_numeric(df_detail.loc[_mask_data, "VaR 99% (M€)"], errors="coerce")
     _q = st.session_state.get("app_config", {}).get("var_quantile", 0.75)
     seuil_var99 = _var99_vals.quantile(_q)
 
@@ -685,9 +812,22 @@ def _render_detail_titres_section(dff: pd.DataFrame, d1: pd.Timestamp):
             pass
         return ""
 
-    styler_det = apply_common_table_styles(df_detail).map(
-        _highlight_var99, subset=["VaR 99% (M€)"]
-    )
+    from modules.format_utils import fmt_pct
+    styler_det = apply_common_table_styles(
+        df_detail,
+        fmt_map={
+            "VM (M€)":       fmt_meur,
+            "Δ VM (M€)":     fmt_meur,
+            "VaR 95% (M€)":  fmt_meur,
+            "VaR 99% (M€)":  fmt_meur,
+            "Alloc (%)":     fmt_pct,
+            "Δ Alloc (%)":   fmt_pct,
+            "Δ VM (%)":      fmt_pct,
+        },
+        total_cols=("Libellé",),
+        delta_meur_col="Δ VM (M€)",
+        delta_pct_col="Δ VM (%)",
+    ).map(_highlight_var99, subset=["VaR 99% (M€)"])
     render_static_dataframe(styler_det)
 
     excel_bytes = df_to_excel_bytes(df_detail, sheet_name="Risque_Taux_Titres")
@@ -808,7 +948,7 @@ def render_risque_taux_tab(df_selection: pd.DataFrame, date_debut, date_fin):
     st.markdown("---")
     show_detail = st.toggle("Afficher le détail par titre", value=False, key="taux_detail_toggle")
     if show_detail:
-        _render_detail_titres_section(dff, d1)
+        _render_detail_titres_section(dff, d0, d1)
 
     # Stockage pour l'onglet Rapport
     st.session_state["rapport_taux"] = {

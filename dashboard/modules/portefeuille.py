@@ -827,26 +827,21 @@ def render_portefeuille_tab(df_selection: pd.DataFrame, use_transpa: bool, date_
                     key="det_pf_tendance",
                 )
 
-            # --- Ligne 2 de filtres : Libellé, ID, Top N, Tri ---
-            fcol5, fcol6, fcol7, fcol8 = st.columns(4)
+            # --- Ligne 2 de filtres : Libellé, ID, Top N ---
+            fcol5, fcol6, fcol7 = st.columns(3)
             with fcol5:
                 search_lib = st.text_input("Libellé (recherche)", value="", key="det_pf_lib")
             with fcol6:
                 search_id = st.text_input("ID (recherche)", value="", key="det_pf_id") if "ID" in detail_grp else ""
             with fcol7:
+                _cfg_top_n  = st.session_state.get("app_config", {}).get("default_top_n", 20)
+                _opts_topn  = [20, 50, 100, 0]
                 top_n = st.selectbox(
                     "Top N titres",
-                    options=[20, 50, 100, 0],
+                    options=_opts_topn,
                     format_func=lambda x: "Tous" if x == 0 else str(x),
-                    index=1,
+                    index=_opts_topn.index(_cfg_top_n) if _cfg_top_n in _opts_topn else 0,
                     key="det_pf_topn",
-                )
-            with fcol8:
-                sort_col_choice = st.selectbox(
-                    "Trier par",
-                    options=["VM (M€)", "Δ VM (M€)", "Δ VM (%)", "Alloc (%)"],
-                    index=0,
-                    key="det_pf_sort_col",
                 )
                 sort_asc = st.checkbox("Ordre croissant", value=False, key="det_pf_sort_asc")
 
@@ -896,10 +891,13 @@ def render_portefeuille_tab(df_selection: pd.DataFrame, use_transpa: bool, date_
                 "VM_FIN":     "VM (M€)",
                 "Delta_VM":   "Δ VM (M€)",
                 "Delta_VM_pct": "Δ VM (%)",
-                "Tendance":   "Tendance",
             }
+            # Filtre Tendance appliqué avant sélection des colonnes
+            if filtre_tendance and "Tendance" in res_det.columns:
+                res_det = res_det[res_det["Tendance"].isin(filtre_tendance)]
+
             det_cols = [
-                c for c in detail_grp + ["VM_FIN", "Delta_VM", "Delta_VM_pct", "Tendance", "Alloc (%)", "Δ Alloc (%)"]
+                c for c in detail_grp + ["VM_FIN", "Delta_VM", "Delta_VM_pct", "Alloc (%)", "Δ Alloc (%)"]
                 if c in res_det.columns
             ]
             aff_det = res_det[det_cols].rename(columns=rename_det)
@@ -907,22 +905,40 @@ def render_portefeuille_tab(df_selection: pd.DataFrame, use_transpa: bool, date_
             # Tri initial par ordre classe/sous-classe
             aff_det = sort_portefeuille_pdf(aff_det)
 
-            # --- Filtres post-calcul : Libellé, ID, Tendance ---
+            # --- Filtres post-calcul : Libellé, ID ---
             if search_lib and "Libellé" in aff_det.columns:
                 aff_det = aff_det[aff_det["Libellé"].astype(str).str.contains(search_lib, case=False, na=False)]
             if search_id and "ID" in aff_det.columns:
                 aff_det = aff_det[aff_det["ID"].astype(str).str.contains(search_id, case=False, na=False)]
-            if filtre_tendance and "Tendance" in aff_det.columns:
-                aff_det = aff_det[aff_det["Tendance"].isin(filtre_tendance)]
 
-            # --- Tri par colonne choisie ---
-            if sort_col_choice in aff_det.columns:
-                aff_det = aff_det.sort_values(sort_col_choice, ascending=sort_asc)
-
-            # --- Top N ---
+            # --- Top N : sélection par VM décroissante ---
             nb_total = len(aff_det)
             if top_n > 0:
-                aff_det = aff_det.head(top_n)
+                aff_det_vm = aff_det.sort_values("VM (M€)", ascending=sort_asc) if "VM (M€)" in aff_det.columns else aff_det
+                df_top_n = aff_det_vm.head(top_n)
+                df_rest  = aff_det_vm.iloc[top_n:]
+            else:
+                df_top_n = aff_det
+                df_rest  = pd.DataFrame()
+
+            # --- Tri par colonne choisie (appliqué après sélection top N) ---
+            if not df_rest.empty:
+                a_vm    = df_rest["VM (M€)"].sum()    if "VM (M€)"   in df_rest.columns else 0.0
+                a_delta = df_rest["Δ VM (M€)"].sum()  if "Δ VM (M€)" in df_rest.columns else 0.0
+                a_deb   = a_vm - a_delta
+                a_pct   = (a_delta / a_deb * 100) if a_deb != 0 else np.nan
+                autres_row = {c: "" for c in df_top_n.columns}
+                autres_row[df_top_n.columns[0]] = "Autres"
+                autres_row["VM (M€)"]    = a_vm
+                autres_row["Δ VM (M€)"]  = a_delta
+                autres_row["Δ VM (%)"]   = a_pct
+                if "Alloc (%)" in df_top_n.columns:
+                    autres_row["Alloc (%)"]   = df_rest["Alloc (%)"].sum()
+                if "Δ Alloc (%)" in df_top_n.columns:
+                    autres_row["Δ Alloc (%)"] = df_rest["Δ Alloc (%)"].sum()
+                aff_det = pd.concat([df_top_n, pd.DataFrame([autres_row])], ignore_index=True)
+            else:
+                aff_det = df_top_n
 
             # --- Ligne TOTAL recalculée sur le sous-ensemble filtré ---
             total_det = {c: "" for c in aff_det.columns}
@@ -936,13 +952,11 @@ def render_portefeuille_tab(df_selection: pd.DataFrame, use_transpa: bool, date_
             t_delta_raw = aff_det["Δ VM (M€)"].sum() * 1e6 if "Δ VM (M€)" in aff_det.columns else 0
             if "Δ VM (%)" in aff_det.columns:
                 total_det["Δ VM (%)"] = (t_delta_raw / t_deb_raw * 100) if t_deb_raw != 0 else np.nan
-            if "Tendance" in aff_det.columns:
-                total_det["Tendance"] = trend(t_delta_raw / t_deb_raw if t_deb_raw != 0 else np.nan)
 
             aff_det_final = pd.concat([aff_det, pd.DataFrame([total_det])], ignore_index=True)
 
             # --- Affichage ---
-            nb_affiches = len(aff_det)
+            nb_affiches = len(aff_det[~aff_det[aff_det.columns[0]].astype(str).isin(["Autres", "TOTAL"])])
             st.caption(
                 f"{nb_affiches} titre(s) affiché(s)"
                 + (f" sur {nb_total}" if top_n > 0 and nb_affiches < nb_total else "")

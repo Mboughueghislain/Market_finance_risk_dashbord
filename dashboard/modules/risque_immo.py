@@ -60,8 +60,8 @@ def build_risque_immo_section(
 
     # Dates
     dff["DATE_TRANSPA"] = pd.to_datetime(dff["DATE_TRANSPA"]).dt.date
-    d0 = dff.loc[dff["DATE_TRANSPA"] <= pd.to_datetime(date_debut).date(), "DATE_TRANSPA"].max()
-    d1 = dff.loc[dff["DATE_TRANSPA"] <= pd.to_datetime(date_fin).date(), "DATE_TRANSPA"].max()
+    d0 = dff.loc[dff["DATE_TRANSPA"] <= pd.to_datetime(date_debut).date(), "DATE_TRANSPA"].max()  # type: ignore[operator]
+    d1 = dff.loc[dff["DATE_TRANSPA"] <= pd.to_datetime(date_fin).date(), "DATE_TRANSPA"].max()  # type: ignore[operator]
 
     if pd.isna(d0) or pd.isna(d1):
         return None
@@ -240,114 +240,195 @@ def _build_detail_immo_table(
     filtre_pays: list,
     filtre_type_gestion: list,
     search_lib: str,
+    search_id: str,
     top_n: int,
+    sort_asc: bool = False,
 ):
     d0_date = pd.to_datetime(d0).date()
     d1_date = pd.to_datetime(d1).date()
-    df1 = dff[dff["DATE_TRANSPA"] == d1_date].copy()
-    df0 = dff[dff["DATE_TRANSPA"] == d0_date].copy()
-    if df1.empty:
+
+    titre_candidates = ["LIBELLE", "LIB_EMETTEUR"]
+    dim_col     = _pick_first_existing_col(dff, titre_candidates) or "LIBELLE"
+    sous_cl_col = "SOUS_CLASSIF_RF" if "SOUS_CLASSIF_RF" in dff.columns else None
+    pays_col    = "PAYS"            if "PAYS"            in dff.columns else None
+    id_col      = "ID"              if "ID"              in dff.columns else None
+
+    df1_raw = dff[dff["DATE_TRANSPA"] == d1_date].copy()
+    df0_raw = dff[dff["DATE_TRANSPA"] == d0_date].copy()
+    if df1_raw.empty:
         return None
 
-    # Type de gestion
-    if "TYPE_GESTION_2" in df1.columns:
-        df1["TYPE_GESTION_LIB"] = df1["TYPE_GESTION_2"].astype(str).map(_GESTION_MAP_IMMO).fillna("Autres")
-    else:
-        df1["TYPE_GESTION_LIB"] = "n.d."
-
-    # VM numérique
-    df1["VM_INIT"] = pd.to_numeric(df1["VM_INIT"], errors="coerce").fillna(0.0)
-    df1 = df1[df1["VM_INIT"] > 0].copy()
-    if df1.empty:
-        return None
-
-    sous_cl_col = "SOUS_CLASSIF_RF" if "SOUS_CLASSIF_RF" in df1.columns else None
-    pays_col    = "PAYS"            if "PAYS"            in df1.columns else None
-    libelle_col = "LIBELLE"         if "LIBELLE"         in df1.columns else None
-
-    # Pré-filtrage
-    if filtre_sous_classe and sous_cl_col:
-        df1 = df1[df1[sous_cl_col].isin(filtre_sous_classe)]
-    if filtre_pays and pays_col:
-        df1 = df1[df1[pays_col].isin(filtre_pays)]
-    if filtre_type_gestion:
-        df1 = df1[df1["TYPE_GESTION_LIB"].isin(filtre_type_gestion)]
-    if search_lib and libelle_col:
-        df1 = df1[df1[libelle_col].astype(str).str.contains(search_lib, case=False, na=False)]
-    if df1.empty:
-        return None
-
-    nb_total = len(df1)
-
-    # VaR immo
-    for c in ["VM_PMVL_IMMO_VAR95", "VM_PMVL_IMMO_VAR99"]:
-        if c in df1.columns:
-            df1[c] = pd.to_numeric(df1[c], errors="coerce").fillna(df1["VM_INIT"])
+    # Type de gestion — mappé sur df0 ET df1 pour cohérence du Delta_VM par mandat
+    for sub in (df1_raw, df0_raw):
+        if "TYPE_GESTION_2" in sub.columns:
+            sub["TYPE_GESTION_LIB"] = sub["TYPE_GESTION_2"].astype(str).map(_GESTION_MAP_IMMO).fillna("Autres")
         else:
-            df1[c] = df1["VM_INIT"]
+            sub["TYPE_GESTION_LIB"] = "n.d."
+        sub["VM_INIT"] = pd.to_numeric(sub["VM_INIT"], errors="coerce").fillna(0.0)
 
-    df1["VAR95_MEUR"] = (df1["VM_PMVL_IMMO_VAR95"] - df1["VM_INIT"]).abs() / 1e6
-    df1["VAR99_MEUR"] = (df1["VM_PMVL_IMMO_VAR99"] - df1["VM_INIT"]).abs() / 1e6
-    df1["VM_FIN_MEUR"] = df1["VM_INIT"] / 1e6
+    df1_raw = df1_raw[df1_raw["VM_INIT"] > 0].copy()
+    if df1_raw.empty:
+        return None
 
-    # Variation d0→d1
-    id_col = "ID" if "ID" in df1.columns else libelle_col
-    if id_col and id_col in df0.columns:
-        df0["VM_INIT"] = pd.to_numeric(df0["VM_INIT"], errors="coerce").fillna(0.0)
-        vm_deb = df0.groupby(id_col)["VM_INIT"].sum().rename("VM_DEBUT") / 1e6
-        df1 = df1.merge(vm_deb.reset_index(), on=id_col, how="left")
-        df1["VM_DEBUT"] = df1["VM_DEBUT"].fillna(0.0)
-    else:
-        df1["VM_DEBUT"] = 0.0
+    # Filtres
+    if filtre_sous_classe and sous_cl_col:
+        df1_raw = df1_raw[df1_raw[sous_cl_col].isin(filtre_sous_classe)]
+    if filtre_pays and pays_col:
+        df1_raw = df1_raw[df1_raw[pays_col].isin(filtre_pays)]
+    if filtre_type_gestion:
+        df1_raw = df1_raw[df1_raw["TYPE_GESTION_LIB"].isin(filtre_type_gestion)]
+    if search_lib:
+        df1_raw = df1_raw[df1_raw[dim_col].astype(str).str.contains(search_lib, case=False, na=False)]
+    if search_id and id_col:
+        df1_raw = df1_raw[df1_raw[id_col].astype(str).str.contains(search_id, case=False, na=False)]
+    if df1_raw.empty:
+        return None
 
-    df1["Delta_VM"]     = df1["VM_FIN_MEUR"] - df1["VM_DEBUT"]
-    df1["Delta_VM_pct"] = np.where(
-        df1["VM_DEBUT"] != 0,
-        df1["Delta_VM"] / df1["VM_DEBUT"] * 100,
+    # VaR
+    for c in ["VM_PMVL_IMMO_VAR95", "VM_PMVL_IMMO_VAR99"]:
+        if c in df1_raw.columns:
+            df1_raw[c] = pd.to_numeric(df1_raw[c], errors="coerce").fillna(df1_raw["VM_INIT"])
+        else:
+            df1_raw[c] = df1_raw["VM_INIT"]
+
+    df1_raw["VM_FIN_MEUR"] = df1_raw["VM_INIT"] / 1e6
+    df1_raw["VAR95_MEUR"]  = (df1_raw["VM_PMVL_IMMO_VAR95"] - df1_raw["VM_INIT"]).abs() / 1e6
+    df1_raw["VAR99_MEUR"]  = (df1_raw["VM_PMVL_IMMO_VAR99"] - df1_raw["VM_INIT"]).abs() / 1e6
+
+    # Clés stables pour l'agrégation VM et le join d0 (attributs qui ne changent pas entre dates)
+    stable_grp = []
+    if id_col:    stable_grp.append(id_col)
+    if dim_col:   stable_grp.append(dim_col)
+    if sous_cl_col and sous_cl_col in df1_raw.columns: stable_grp.append(sous_cl_col)
+    stable_grp.append("TYPE_GESTION_LIB")
+
+    # Colonnes descriptives variables (PAYS peut changer entre d0 et d1)
+    desc_cols = [c for c in [pays_col] if c and c in df1_raw.columns]
+
+    # Agrégation d1 sur clés stables
+    df1_agg = (
+        df1_raw.groupby(stable_grp, dropna=False)[["VM_FIN_MEUR", "VAR95_MEUR", "VAR99_MEUR"]]
+        .sum()
+        .reset_index()
+    )
+
+    # Colonnes descriptives depuis d1 (première occurrence par clé stable)
+    if desc_cols:
+        first_occ = df1_raw.drop_duplicates(subset=stable_grp)[stable_grp + desc_cols]
+        df1_agg = df1_agg.merge(first_occ, on=stable_grp, how="left")
+
+    nb_total = len(df1_agg)
+
+    # Agrégation d0 sur les mêmes clés stables → VM_DEBUT cohérent par mandat
+    d0_grp = [c for c in stable_grp if c in df0_raw.columns]
+    if not df0_raw.empty and d0_grp:
+        vm_debut = (
+            df0_raw.groupby(d0_grp, dropna=False)["VM_INIT"]
+            .sum()
+            .rename("VM_DEBUT")
+            / 1e6
+        ).reset_index()
+        df1_agg = df1_agg.merge(vm_debut, on=d0_grp, how="left")
+    df1_agg["VM_DEBUT"] = df1_agg["VM_DEBUT"].fillna(0.0) if "VM_DEBUT" in df1_agg.columns else 0.0
+
+    df1_agg["Delta_VM"]     = df1_agg["VM_FIN_MEUR"] - df1_agg["VM_DEBUT"]
+    df1_agg["Delta_VM_pct"] = np.where(
+        df1_agg["VM_DEBUT"] != 0,
+        df1_agg["Delta_VM"] / df1_agg["VM_DEBUT"] * 100,
         np.nan,
     )
-    df1["Tendance"] = (df1["Delta_VM_pct"] / 100).apply(trend)
+    df1_agg["Tendance"] = (df1_agg["Delta_VM_pct"] / 100).apply(trend)
 
-    total_vm = df1["VM_FIN_MEUR"].sum()
-    df1["ALLOC"] = df1["VM_FIN_MEUR"] / total_vm if total_vm > 0 else 0.0
+    # Positions liquidées : présentes en d0 mais absentes de df1 à d1
+    vm_liquidee = 0.0
+    if not df0_raw.empty and d0_grp:
+        df0_filt = df0_raw.copy()
+        if filtre_type_gestion:
+            df0_filt = df0_filt[df0_filt["TYPE_GESTION_LIB"].isin(filtre_type_gestion)]
+        if filtre_sous_classe and sous_cl_col and sous_cl_col in df0_filt.columns:
+            df0_filt = df0_filt[df0_filt[sous_cl_col].isin(filtre_sous_classe)]
+        d0_all = (
+            df0_filt.groupby(d0_grp, dropna=False)["VM_INIT"]
+            .sum()
+            .reset_index()
+            .rename(columns={"VM_INIT": "_VM_D0"})
+        )
+        d1_keys = df1_agg[d0_grp].drop_duplicates()
+        sold = d0_all.merge(d1_keys, on=d0_grp, how="left", indicator=True)
+        sold = sold[sold["_merge"] == "left_only"]
+        vm_liquidee = float(sold["_VM_D0"].sum()) / 1e6
 
-    # Tri + Top N
-    df1 = df1.sort_values("VM_FIN_MEUR", ascending=False)
+    # Tri + séparation top N / autres
+    df1_agg = df1_agg.sort_values("VM_FIN_MEUR", ascending=sort_asc)
     if top_n > 0:
-        df1 = df1.head(top_n)
+        df_top    = df1_agg.head(top_n).copy()
+        df_autres = df1_agg.iloc[top_n:].copy()
+    else:
+        df_top    = df1_agg.copy()
+        df_autres = pd.DataFrame()
 
     # Colonnes finales
     col_map = {}
-    keep = []
-    if libelle_col:
-        col_map[libelle_col] = "Libellé"; keep.append(libelle_col)
-    if sous_cl_col:
+    keep    = []
+    if id_col and id_col in df1_agg.columns:
+        keep.append(id_col)
+    col_map[dim_col] = "Libellé"; keep.append(dim_col)
+    if sous_cl_col and sous_cl_col in df1_agg.columns:
         col_map[sous_cl_col] = "Sous-classe d'actif"; keep.append(sous_cl_col)
     col_map["TYPE_GESTION_LIB"] = "Type de gestion"; keep.append("TYPE_GESTION_LIB")
-    if pays_col:
+    if pays_col and pays_col in df1_agg.columns:
         col_map[pays_col] = "Pays"; keep.append(pays_col)
-    for c, lbl in [("VM_FIN_MEUR", "VM (M€)"), ("ALLOC", "Alloc (%)"),
-                   ("Delta_VM", "Δ VM (M€)"), ("Delta_VM_pct", "Δ VM (%)"),
-                   ("Tendance", "Tendance"),
+    for c, lbl in [("VM_FIN_MEUR", "VM (M€)"), ("Delta_VM", "Δ VM (M€)"),
+                   ("Delta_VM_pct", "Δ VM (%)"),
                    ("VAR95_MEUR", "VaR 95% (M€)"), ("VAR99_MEUR", "VaR 99% (M€)")]:
         col_map[c] = lbl; keep.append(c)
 
-    result = df1[keep].rename(columns=col_map)
+    result = df_top[[c for c in keep if c in df_top.columns]].rename(columns=col_map)
+    first_col = result.columns[0]
 
-    # Ligne TOTAL
-    t_fin   = result["VM (M€)"].sum()
-    t_delta = result["Δ VM (M€)"].sum()
+    # Ligne "Autres"
+    if not df_autres.empty:
+        a_vm    = df_autres["VM_FIN_MEUR"].sum()
+        a_delta = df_autres["Delta_VM"].sum()
+        a_deb   = a_vm - a_delta
+        a_pct   = (a_delta / a_deb * 100) if a_deb != 0 else np.nan
+        autres_row = {c: "" for c in result.columns}
+        autres_row[first_col]      = "Autres"
+        autres_row["VM (M€)"]      = a_vm
+        autres_row["Δ VM (M€)"]    = a_delta
+        autres_row["Δ VM (%)"]     = a_pct
+        autres_row["VaR 95% (M€)"] = df_autres["VAR95_MEUR"].sum()
+        autres_row["VaR 99% (M€)"] = df_autres["VAR99_MEUR"].sum()
+        result = pd.concat([result, pd.DataFrame([autres_row])], ignore_index=True)
+
+    # Alloc et Δ Alloc
+    result = add_alloc_columns(result, vm_fin_col="VM (M€)", delta_vm_col="Δ VM (M€)")
+
+    # Ligne Positions liquidées
+    if vm_liquidee > 0:
+        liq_row = {c: "" for c in result.columns}
+        liq_row[first_col]      = "Positions liquidées"
+        liq_row["VM (M€)"]      = 0.0
+        liq_row["Δ VM (M€)"]    = -vm_liquidee
+        liq_row["Δ VM (%)"]     = -100.0
+        liq_row["VaR 95% (M€)"] = 0.0
+        liq_row["VaR 99% (M€)"] = 0.0
+        result = pd.concat([result, pd.DataFrame([liq_row])], ignore_index=True)
+
+    # Ligne TOTAL (inclut les positions liquidées pour coïncider avec les tableaux du haut)
+    t_fin   = df1_agg["VM_FIN_MEUR"].sum()
+    t_delta = df1_agg["Delta_VM"].sum() - vm_liquidee
     t_deb   = t_fin - t_delta
     t_pct   = (t_delta / t_deb * 100) if t_deb != 0 else np.nan
     total_row = {c: "" for c in result.columns}
-    total_row[result.columns[0]] = "TOTAL"
-    total_row["VM (M€)"]         = t_fin
-    total_row["Alloc (%)"]       = result["Alloc (%)"].sum()
-    total_row["Δ VM (M€)"]       = t_delta
-    total_row["Δ VM (%)"]        = t_pct
-    total_row["Tendance"]        = trend(t_delta / t_deb if t_deb != 0 else np.nan)
-    total_row["VaR 95% (M€)"]    = result["VaR 95% (M€)"].sum()
-    total_row["VaR 99% (M€)"]    = result["VaR 99% (M€)"].sum()
+    total_row[first_col]       = "TOTAL"
+    total_row["VM (M€)"]       = t_fin
+    total_row["Alloc (%)"]     = 100.0
+    total_row["Δ Alloc (%)"]   = 0.0
+    total_row["Δ VM (M€)"]     = t_delta
+    total_row["Δ VM (%)"]      = t_pct
+    total_row["VaR 95% (M€)"]  = df1_agg["VAR95_MEUR"].sum()
+    total_row["VaR 99% (M€)"]  = df1_agg["VAR99_MEUR"].sum()
     result = pd.concat([result, pd.DataFrame([total_row])], ignore_index=True)
 
     return result, nb_total
@@ -381,20 +462,27 @@ def _render_detail_immo_section(dff: pd.DataFrame, d0, d1):
     with fc3:
         filtre_type_gestion = st.multiselect("Type de gestion", options=types_gestion_dispo, default=[], key="det_immo_gestion")
     with fc4:
+        _cfg_top_n  = st.session_state.get("app_config", {}).get("default_top_n", 20)
+        _opts_topn  = [20, 50, 100, 0]
         top_n = st.selectbox(
             "Top N titres",
-            options=[20, 50, 100, 0],
+            options=_opts_topn,
             format_func=lambda x: "Tous" if x == 0 else str(x),
-            index=1,
+            index=_opts_topn.index(_cfg_top_n) if _cfg_top_n in _opts_topn else 0,
             key="det_immo_topn",
         )
+        sort_asc = st.checkbox("Ordre croissant", value=False, key="det_immo_sort_asc")
 
-    search_lib = st.text_input("Libellé (recherche)", value="", key="det_immo_lib")
+    fi1, fi2 = st.columns(2)
+    with fi1:
+        search_lib = st.text_input("Libellé (recherche)", value="", key="det_immo_lib")
+    with fi2:
+        search_id = st.text_input("ID (recherche)", value="", key="det_immo_id")
 
     result = _build_detail_immo_table(
         dff, d0, d1,
         filtre_sous_classe, filtre_pays, filtre_type_gestion,
-        search_lib, top_n,
+        search_lib, search_id, top_n, sort_asc,
     )
 
     if result is None:
@@ -402,19 +490,28 @@ def _render_detail_immo_section(dff: pd.DataFrame, d0, d1):
         return
 
     df_detail, nb_total = result
-    nb_affiches = len(df_detail) - 1  # hors TOTAL
+    nb_affiches = len(df_detail[~df_detail[df_detail.columns[0]].astype(str).isin(["Autres", "TOTAL", "Positions liquidées"])])
 
     st.caption(
         f"{nb_affiches} titre(s) affiché(s)"
         + (f" sur {nb_total}" if top_n > 0 and nb_affiches < nb_total else "")
     )
 
+    from modules.format_utils import fmt_pct, fmt_meur
     styled = apply_common_table_styles(
         df_detail,
+        fmt_map={
+            "VM (M€)":       fmt_meur,
+            "Δ VM (M€)":     fmt_meur,
+            "Δ VM (%)":      fmt_pct,
+            "VaR 95% (M€)":  fmt_meur,
+            "VaR 99% (M€)":  fmt_meur,
+            "Alloc (%)":     fmt_pct,
+            "Δ Alloc (%)":   fmt_pct,
+        },
         total_cols=(df_detail.columns[0],),
         delta_meur_col="Δ VM (M€)",
         delta_pct_col="Δ VM (%)",
-        tendance_col="Tendance",
     )
     render_static_dataframe(styled)
 

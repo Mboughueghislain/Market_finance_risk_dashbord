@@ -1082,14 +1082,15 @@ def render_risque_spread_tab(df_selection: pd.DataFrame, date_debut, date_fin):
         if libelle_col:
             grp_det.append(libelle_col)
 
+        # Clés stables pour VM_DEBUT (sans NOTATION ni dim_col qui peuvent changer entre dates)
+        stable_keys = [k for k in ([id_col] if id_col else ([libelle_col] if libelle_col else [dim_col])) if k]
+
         dff_d1 = dff[dff["DATE_TRANSPA"] == d1].copy()
         dff_d0 = dff[dff["DATE_TRANSPA"] == d0].copy()
 
+        # VM_FIN et Spread agrégés par grp_det à d1
         fin_det = (
             dff_d1.groupby(grp_det, dropna=False)["VM_INIT"].sum().rename("VM_FIN")
-        )
-        deb_det = (
-            dff_d0.groupby(grp_det, dropna=False)["VM_INIT"].sum().rename("VM_DEBUT")
         )
         spread_det = (
             dff_d1.groupby(grp_det, dropna=False)
@@ -1098,11 +1099,24 @@ def render_risque_spread_tab(df_selection: pd.DataFrame, date_debut, date_fin):
         )
 
         res_det = (
-            pd.concat([deb_det, fin_det, spread_det], axis=1)
+            pd.concat([fin_det, spread_det], axis=1)
             .fillna(0)
             .reset_index()
         )
         res_det = res_det[res_det["VM_FIN"] != 0]
+
+        # VM_DEBUT depuis d0 via clés stables (évite les erreurs si NOTATION change entre d0 et d1)
+        d0_stable = [k for k in stable_keys if k in dff_d0.columns]
+        if d0_stable:
+            vm_deb = (
+                dff_d0.groupby(d0_stable, dropna=False)["VM_INIT"]
+                .sum()
+                .rename("VM_DEBUT")
+                .reset_index()
+            )
+            res_det_stable = [k for k in stable_keys if k in res_det.columns]
+            res_det = res_det.merge(vm_deb, left_on=res_det_stable, right_on=d0_stable, how="left")
+        res_det["VM_DEBUT"] = res_det["VM_DEBUT"].fillna(0.0) if "VM_DEBUT" in res_det.columns else 0.0
 
         res_det["Delta_VM"]     = res_det["VM_FIN"] - res_det["VM_DEBUT"]
         res_det["Delta_VM_pct"] = np.where(
@@ -1110,21 +1124,34 @@ def render_risque_spread_tab(df_selection: pd.DataFrame, date_debut, date_fin):
             res_det["Delta_VM"] / res_det["VM_DEBUT"],
             np.nan,
         )
-        res_det["Tendance"] = res_det["Delta_VM_pct"].apply(trend)
-
         for c in ["VM_FIN", "VM_DEBUT", "Delta_VM"]:
             res_det[c] = res_det[c] / 1e6
         res_det["Delta_VM_pct"] = res_det["Delta_VM_pct"] * 100
         res_det = add_alloc_columns(res_det, vm_fin_col="VM_FIN", delta_vm_col="Delta_VM")
 
-        # Ligne TOTAL
-        t_deb   = res_det["VM_FIN"].sum() - res_det["Delta_VM"].sum()
+        # Positions liquidées : présentes en d0 mais absentes de res_det à d1
+        vm_liquidee_spread = 0.0
+        if d0_stable and not dff_d0.empty:
+            d0_all_sp = (
+                dff_d0.groupby(d0_stable, dropna=False)["VM_INIT"]
+                .sum()
+                .reset_index()
+                .rename(columns={"VM_INIT": "_VM_D0"})
+            )
+            d1_keys_sp = res_det[[k for k in stable_keys if k in res_det.columns]].drop_duplicates()
+            sold_sp = d0_all_sp.merge(d1_keys_sp, left_on=d0_stable,
+                                      right_on=[k for k in stable_keys if k in res_det.columns],
+                                      how="left", indicator=True)
+            sold_sp = sold_sp[sold_sp["_merge"] == "left_only"]
+            vm_liquidee_spread = float(sold_sp["_VM_D0"].sum()) / 1e6
+
+        # Ligne TOTAL (inclut les positions liquidées)
         t_fin   = res_det["VM_FIN"].sum()
-        t_delta = res_det["Delta_VM"].sum()
+        t_delta = res_det["Delta_VM"].sum() - vm_liquidee_spread
+        t_deb   = t_fin - t_delta
         t_pct   = (t_delta / t_deb * 100) if t_deb != 0 else np.nan
         total_det = {dim_col: "TOTAL", "NOTATION": "", "Delta_VM": t_delta,
                      "VM_FIN": t_fin, "Delta_VM_pct": t_pct,
-                     "Tendance": trend(t_pct / 100 if pd.notna(t_pct) else np.nan),
                      "Alloc (%)": 100.0, "Δ Alloc (%)": 0.0, "Spread": np.nan}
         if id_col:      total_det[id_col]      = ""
         if libelle_col: total_det[libelle_col] = ""
@@ -1134,7 +1161,7 @@ def render_risque_spread_tab(df_selection: pd.DataFrame, date_debut, date_fin):
         cols_det = [dim_col, "NOTATION"]
         if id_col:      cols_det.append(id_col)
         if libelle_col: cols_det.append(libelle_col)
-        cols_det += ["VM_FIN", "Delta_VM", "Delta_VM_pct", "Tendance", "Alloc (%)", "Δ Alloc (%)", "Spread"]
+        cols_det += ["VM_FIN", "Delta_VM", "Delta_VM_pct", "Alloc (%)", "Δ Alloc (%)", "Spread"]
         cols_det = [c for c in cols_det if c in res_det.columns]
 
         rename_det = {
@@ -1161,7 +1188,7 @@ def render_risque_spread_tab(df_selection: pd.DataFrame, date_debut, date_fin):
         # --- Filtres ---
         aff_corps = aff_det[aff_det[choix_dim_affichage].astype(str).str.upper() != "TOTAL"]
 
-        fcol1, fcol2, fcol3, fcol4 = st.columns(4)
+        fcol1, fcol2, fcol3 = st.columns([2, 2, 1])
         with fcol1:
             opts_dim = sorted(aff_corps[choix_dim_affichage].dropna().astype(str).unique().tolist())
             sel_dim  = st.multiselect(choix_dim_affichage, options=opts_dim, default=[],
@@ -1171,15 +1198,21 @@ def render_risque_spread_tab(df_selection: pd.DataFrame, date_debut, date_fin):
             sel_not  = st.multiselect("Notation", options=opts_not, default=[],
                                       key="det_spread_not")
         with fcol3:
-            search_lib = st.text_input("Libellé (recherche)", value="", key="det_spread_lib") if "Libellé" in aff_corps.columns else ""
-        with fcol4:
+            _cfg_top_n  = st.session_state.get("app_config", {}).get("default_top_n", 20)
+            _opts_topn  = [20, 50, 100, 0]
             top_n = st.selectbox(
                 "Top N titres",
-                options=[20, 50, 100, 0],
+                options=_opts_topn,
                 format_func=lambda x: "Tous" if x == 0 else str(x),
-                index=1,
+                index=_opts_topn.index(_cfg_top_n) if _cfg_top_n in _opts_topn else 0,
                 key="det_spread_topn",
             )
+            sort_asc = st.checkbox("Ordre croissant", value=False, key="det_spread_sort_asc")
+        scol1, scol2 = st.columns(2)
+        with scol1:
+            search_lib = st.text_input("Libellé (recherche)", value="", key="det_spread_lib")
+        with scol2:
+            search_id = st.text_input("ID (recherche)", value="", key="det_spread_id") if "ID" in aff_corps.columns else ""
 
         # Application des filtres
         filtered = aff_corps.copy()
@@ -1189,14 +1222,40 @@ def render_risque_spread_tab(df_selection: pd.DataFrame, date_debut, date_fin):
             filtered = filtered[filtered["Notation"].astype(str).isin(sel_not)]
         if search_lib and "Libellé" in filtered.columns:
             filtered = filtered[filtered["Libellé"].astype(str).str.contains(search_lib, case=False, na=False)]
+        if search_id and "ID" in filtered.columns:
+            filtered = filtered[filtered["ID"].astype(str).str.contains(search_id, case=False, na=False)]
 
+        filtered = filtered.sort_values("VM (M€)", ascending=sort_asc)
         nb_total = len(filtered)
         if top_n > 0:
-            filtered = filtered.head(top_n)
+            df_top_n  = filtered.head(top_n)
+            df_autres = filtered.iloc[top_n:]
+            if not df_autres.empty:
+                autres_row = {c: "" for c in filtered.columns}
+                autres_row[choix_dim_affichage] = "Autres"
+                autres_row["Notation"]   = ""
+                autres_row["VM (M€)"]    = df_autres["VM (M€)"].sum()
+                autres_row["Δ VM (M€)"]  = df_autres["Δ VM (M€)"].sum()
+                _deb_a = df_autres["VM (M€)"].sum() - df_autres["Δ VM (M€)"].sum()
+                autres_row["Δ VM (%)"]   = (df_autres["Δ VM (M€)"].sum() / _deb_a * 100) if _deb_a != 0 else np.nan
+                autres_row["Alloc (%)"]  = df_autres["Alloc (%)"].sum()
+                autres_row["Δ Alloc (%)"] = df_autres["Δ Alloc (%)"].sum() if "Δ Alloc (%)" in df_autres.columns else ""
+                filtered = pd.concat([df_top_n, pd.DataFrame([autres_row])], ignore_index=True)
+            else:
+                filtered = df_top_n
 
-        # Ligne TOTAL recalculée sur le sous-ensemble filtré
-        t_fin   = filtered["VM (M€)"].sum()
-        t_delta = filtered["Δ VM (M€)"].sum()
+        # Ligne Positions liquidées
+        if vm_liquidee_spread > 0:
+            liq_row = {c: "" for c in filtered.columns}
+            liq_row[choix_dim_affichage] = "Positions liquidées"
+            liq_row["VM (M€)"]   = 0.0
+            liq_row["Δ VM (M€)"] = -vm_liquidee_spread
+            liq_row["Δ VM (%)"]  = -100.0
+            filtered = pd.concat([filtered, pd.DataFrame([liq_row])], ignore_index=True)
+
+        # Ligne TOTAL recalculée (inclut les positions liquidées)
+        t_fin   = filtered.loc[filtered[choix_dim_affichage] != "Positions liquidées", "VM (M€)"].sum()
+        t_delta = filtered.loc[filtered[choix_dim_affichage] != "Positions liquidées", "Δ VM (M€)"].sum() - vm_liquidee_spread
         t_deb   = t_fin - t_delta
         t_pct   = (t_delta / t_deb * 100) if t_deb != 0 else np.nan
         total_row = {c: "" for c in filtered.columns}
@@ -1204,12 +1263,11 @@ def render_risque_spread_tab(df_selection: pd.DataFrame, date_debut, date_fin):
         total_row["VM (M€)"]    = t_fin
         total_row["Δ VM (M€)"]  = t_delta
         total_row["Δ VM (%)"]   = t_pct
-        total_row["Alloc (%)"]  = filtered["Alloc (%)"].sum()
-        total_row["Δ Alloc (%)"] = filtered["Δ Alloc (%)"].sum() if "Δ Alloc (%)" in filtered.columns else ""
-        total_row["Tendance"]   = trend(t_pct / 100 if pd.notna(t_pct) else np.nan)
+        total_row["Alloc (%)"]  = 100.0
+        total_row["Δ Alloc (%)"] = 0.0
         aff_det_final = pd.concat([filtered, pd.DataFrame([total_row])], ignore_index=True)
 
-        nb_affiches = len(filtered)
+        nb_affiches = len(filtered[~filtered[choix_dim_affichage].astype(str).isin(["Autres", "Positions liquidées"])])
         st.caption(
             f"{nb_affiches} titre(s) affiché(s)"
             + (f" sur {nb_total}" if top_n > 0 and nb_affiches < nb_total else "")
@@ -1221,7 +1279,6 @@ def render_risque_spread_tab(df_selection: pd.DataFrame, date_debut, date_fin):
             total_cols=(choix_dim_affichage,),
             delta_meur_col="Δ VM (M€)",
             delta_pct_col="Δ VM (%)",
-            tendance_col="Tendance",
         )
         render_static_dataframe(styled_det)
 

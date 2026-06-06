@@ -450,6 +450,21 @@ st.markdown(
         color: #1a1a2e !important;
         -webkit-text-fill-color: #1a1a2e !important;
     }
+    /* Labels widgets Streamlit (structure variable selon version) */
+    .main [data-testid="stWidgetLabel"],
+    .main [data-testid="stWidgetLabel"] p,
+    .main [data-testid="stWidgetLabel"] label,
+    .main [data-testid="stWidgetLabel"] label p,
+    .main .stTextInput label p,
+    .main .stSelectbox label p,
+    .main .stToggle label p,
+    .main .stCheckbox label p,
+    .main [data-testid="stForm"] label,
+    .main [data-testid="stForm"] label p,
+    .main [data-testid="stForm"] p {
+        color: #1a1a2e !important;
+        -webkit-text-fill-color: #1a1a2e !important;
+    }
 
     /* ── Formulaires : carte blanche ── */
     .main [data-testid="stForm"] {
@@ -831,13 +846,20 @@ _authenticator.logout("⏻  Se déconnecter", location="sidebar", key="btn_logou
 _tab_labels = ["Suivi du Portefeuille", "Suivi des Indicateurs de Risque", "Data", "Rapport"]
 if show_admin:
     _tab_labels.append("⚙️ Admin")
+_has_excel_viewer = bool(st.session_state.get("_excel_viewer_bytes"))
+if _has_excel_viewer:
+    _tab_labels.append(st.session_state.get("_excel_viewer_tabname", "📊 Excel"))
 
 _tabs = st.tabs(_tab_labels)
 suivi_pf_tab      = _tabs[0]
 suivi_indic_tab   = _tabs[1]
 data_tab          = _tabs[2]
 rapport_tab       = _tabs[3]
-admin_tab         = _tabs[4] if show_admin else None
+_next_idx = 4
+admin_tab  = _tabs[_next_idx] if show_admin else None
+if show_admin:
+    _next_idx += 1
+excel_tab  = _tabs[_next_idx] if _has_excel_viewer else None
 
 # =========================
 # ONGLET : SUIVI DU PORTEFEUILLE
@@ -1049,11 +1071,12 @@ with rapport_tab:
 if show_admin and admin_tab is not None:
     with admin_tab:
         st.subheader("⚙️ Administration")
-        admin_data_tab, admin_params_tab, admin_diag_tab, admin_users_tab = st.tabs([
+        admin_data_tab, admin_params_tab, admin_diag_tab, admin_users_tab, admin_excel_tab = st.tabs([
             "📂 Données",
             "⚙️ Paramètres",
             "🔍 Diagnostics",
             "👤 Utilisateurs / Accès",
+            "📊 Visualiseur Excel",
         ])
 
         with admin_data_tab:
@@ -1207,44 +1230,15 @@ if show_admin and admin_tab is not None:
         with admin_params_tab:
             st.markdown("### Paramètres de l'application")
 
+            if "_admin_params_success" in st.session_state:
+                st.success(st.session_state.pop("_admin_params_success"))
+
             _p = st.session_state["app_config"].copy()
 
             _col_form, _ = st.columns([1.5, 1])
 
             with _col_form:
-                # ── 1. Sécurité ───────────────────────────────────────────────
-                st.markdown("#### 🔒 Sécurité")
-                st.caption(f"Connecté en tant que **{_username}**. Ce formulaire change votre mot de passe de connexion.")
-                with st.form("form_password"):
-                    _new_mdp1 = st.text_input(
-                        "Nouveau mot de passe",
-                        type="password",
-                        placeholder="Laisser vide pour ne pas changer",
-                    )
-                    _new_mdp2 = st.text_input(
-                        "Confirmer le mot de passe",
-                        type="password",
-                        placeholder="Répéter le nouveau mot de passe",
-                    )
-                    _submit_mdp = st.form_submit_button("💾 Enregistrer le mot de passe")
-
-                if _submit_mdp:
-                    if not _new_mdp1:
-                        st.warning("Aucun nouveau mot de passe saisi.")
-                    elif _new_mdp1 != _new_mdp2:
-                        st.error("Les deux mots de passe ne correspondent pas.")
-                    else:
-                        _err_pwd = update_password(_p, _username, _new_mdp1)
-                        if _err_pwd:
-                            st.error(_err_pwd)
-                        else:
-                            save_config(_p)
-                            st.session_state["app_config"] = _p
-                            st.success("Mot de passe mis à jour. Reconnectez-vous avec le nouveau mot de passe.")
-
-                st.markdown("---")
-
-                # ── 2. Chemin source SAS ──────────────────────────────────────
+                # ── 1. Chemin source SAS ──────────────────────────────────────
                 st.markdown("#### 📂 Répertoire source SAS")
                 with st.form("form_source_dir"):
                     _new_source = st.text_input(
@@ -1261,9 +1255,11 @@ if show_admin and admin_tab is not None:
                         _p["source_dir"] = _new_source.strip()
                         save_config(_p)
                         st.session_state["app_config"] = _p
-                        st.success("Chemin source mis à jour.")
+                        _src_msg = "Chemin source mis à jour."
                         if not Path(_new_source.strip()).exists():
-                            st.warning("Attention : ce chemin n'est pas accessible actuellement.")
+                            _src_msg += " ⚠️ Ce chemin n'est pas accessible actuellement."
+                        st.session_state["_admin_params_success"] = _src_msg
+                        st.rerun()
 
                 st.markdown("---")
 
@@ -1296,7 +1292,8 @@ if show_admin and admin_tab is not None:
                     _p["var_quantile"] = _quantile_options[_new_q_label]
                     save_config(_p)
                     st.session_state["app_config"] = _p
-                    st.success(f"Seuil VaR mis à jour : {_new_q_label}.")
+                    st.session_state["_admin_params_success"] = f"Seuil VaR mis à jour : {_new_q_label}."
+                    st.rerun()
 
                 st.markdown("---")
 
@@ -1328,10 +1325,11 @@ if show_admin and admin_tab is not None:
                     save_config(_p)
                     st.session_state["app_config"] = _p
                     _lbl = f"{_backup_keep} derniers" if _backup_keep > 0 else "illimité"
-                    st.success(
+                    st.session_state["_admin_params_success"] = (
                         f"Backups {'activés' if _backup_enabled else 'désactivés'}"
                         + (f" — conservation : {_lbl}." if _backup_enabled else ".")
                     )
+                    st.rerun()
 
                 st.markdown("---")
 
@@ -1354,7 +1352,10 @@ if show_admin and admin_tab is not None:
                     _p["default_top_n"] = _new_top_n
                     save_config(_p)
                     st.session_state["app_config"] = _p
-                    st.success(f"Top N par défaut mis à jour : {'Tous' if _new_top_n == 0 else _new_top_n}.")
+                    for _topn_key in ["detail_taux_topn", "det_action_topn", "det_immo_topn", "det_spread_topn", "det_pf_topn"]:
+                        st.session_state.pop(_topn_key, None)
+                    st.session_state["_admin_params_success"] = f"Top N par défaut mis à jour : {'Tous' if _new_top_n == 0 else _new_top_n}."
+                    st.rerun()
 
         with admin_diag_tab:
             import platform as _platform
@@ -1581,3 +1582,153 @@ if show_admin and admin_tab is not None:
                                 st.rerun()
                     else:
                         st.caption("L'utilisateur admin principal ne peut pas être supprimé.")
+
+        with admin_excel_tab:
+            import io as _io
+            import subprocess as _sp
+            import tempfile as _tf
+            import os as _os
+            st.markdown("### 📊 Visualiseur Excel")
+            st.caption("Glissez-déposez un fichier Excel — graphiques et mise en page affichés tels quels.")
+
+            _uploaded = st.file_uploader(
+                "Fichier Excel (.xlsx / .xls)",
+                type=["xlsx", "xls"],
+                key="excel_uploader_widget",
+            )
+
+            if _uploaded is not None:
+                _bytes = _uploaded.read()
+                _fname = _uploaded.name
+                if st.session_state.get("_excel_viewer_fname") != _fname or not st.session_state.get("_excel_viewer_bytes"):
+                    try:
+                        _xf = pd.ExcelFile(_io.BytesIO(_bytes))
+                        with st.spinner("Conversion en cours…"):
+                            # Conversion LibreOffice → PDF (préserve graphiques + mise en page)
+                            with _tf.TemporaryDirectory() as _tmpdir:
+                                _tmp_xlsx = _os.path.join(_tmpdir, _fname)
+                                with open(_tmp_xlsx, "wb") as _f:
+                                    _f.write(_bytes)
+                                _res = _sp.run(
+                                    ["libreoffice", "--headless", "--convert-to", "pdf",
+                                     "--outdir", _tmpdir, _tmp_xlsx],
+                                    capture_output=True, text=True, timeout=120,
+                                )
+                                _pdf_path = _os.path.join(_tmpdir, _fname.rsplit(".", 1)[0] + ".pdf")
+                                _pdf_bytes = None
+                                if _res.returncode == 0 and _os.path.exists(_pdf_path):
+                                    with open(_pdf_path, "rb") as _f:
+                                        _pdf_bytes = _f.read()
+                        st.session_state["_excel_viewer_bytes"]  = _bytes
+                        st.session_state["_excel_viewer_fname"]  = _fname
+                        st.session_state["_excel_viewer_sheets"] = _xf.sheet_names
+                        st.session_state["_excel_viewer_pdf"]    = _pdf_bytes
+                        st.rerun()
+                    except Exception as _e:
+                        st.error(f"Impossible de lire le fichier : {_e}")
+
+            if st.session_state.get("_excel_viewer_bytes"):
+                _nb_sheets = len(st.session_state["_excel_viewer_sheets"])
+                _has_pdf   = st.session_state.get("_excel_viewer_pdf") is not None
+                st.success(
+                    f"Fichier chargé : **{st.session_state['_excel_viewer_fname']}**  "
+                    f"({_nb_sheets} feuille(s)) — "
+                    f"{'✅ rendu graphique activé' if _has_pdf else '⚠️ rendu texte uniquement'}"
+                )
+
+                _acol1, _acol2 = st.columns(2)
+                with _acol1:
+                    _new_name = st.text_input(
+                        "Nom de l'onglet",
+                        value=st.session_state.get("_excel_viewer_tabname", "📊 Excel"),
+                        key="excel_tab_rename",
+                    )
+                    if _new_name and _new_name != st.session_state.get("_excel_viewer_tabname"):
+                        st.session_state["_excel_viewer_tabname"] = _new_name
+                        st.rerun()
+                with _acol2:
+                    _sheets_avail = st.session_state["_excel_viewer_sheets"]
+                    _cur_sheet = st.session_state.get("_excel_viewer_default_sheet", _sheets_avail[0])
+                    _cur_idx   = _sheets_avail.index(_cur_sheet) if _cur_sheet in _sheets_avail else 0
+                    _chosen_sheet = st.selectbox(
+                        "Feuille affichée par défaut",
+                        options=_sheets_avail,
+                        index=_cur_idx,
+                        key="admin_excel_sheet_select",
+                    )
+                    if _chosen_sheet != st.session_state.get("_excel_viewer_default_sheet"):
+                        st.session_state["_excel_viewer_default_sheet"] = _chosen_sheet
+                        st.rerun()
+
+                if st.button("🗑️ Retirer le fichier", key="btn_remove_excel"):
+                    for _k in ["_excel_viewer_bytes", "_excel_viewer_fname", "_excel_viewer_sheets",
+                               "_excel_viewer_tabname", "_excel_viewer_pdf"]:
+                        st.session_state.pop(_k, None)
+                    st.rerun()
+
+# =========================
+# ONGLET : EXCEL VIEWER
+# =========================
+if excel_tab is not None:
+    import io as _io2
+    import fitz as _fitz
+    with excel_tab:
+        _bytes_xl  = st.session_state["_excel_viewer_bytes"]
+        _fname_xl  = st.session_state["_excel_viewer_fname"]
+        _sheets_xl = st.session_state["_excel_viewer_sheets"]
+        _pdf_xl    = st.session_state.get("_excel_viewer_pdf")
+
+        st.subheader(f"📊 {_fname_xl}")
+
+        # Feuille active : seul l'admin peut la changer (depuis l'onglet Admin)
+        _sel_sheet = st.session_state.get("_excel_viewer_default_sheet") or _sheets_xl[0]
+        if _sel_sheet not in _sheets_xl:
+            _sel_sheet = _sheets_xl[0]
+
+        _xcol1, _xcol2 = st.columns([3, 1])
+        with _xcol1:
+            st.caption(f"Feuille : **{_sel_sheet}**")
+        with _xcol2:
+            _zoom = st.slider("Zoom", min_value=100, max_value=200, value=100, step=10,
+                              key="excel_zoom", format="%d%%")
+
+        if _pdf_xl is not None:
+            # Rendu haute qualité via pymupdf (graphiques + mise en page)
+            try:
+                _doc   = _fitz.open(stream=_pdf_xl, filetype="pdf")
+                _sheet_idx = _sheets_xl.index(_sel_sheet) if _sel_sheet in _sheets_xl else 0
+                if _sheet_idx < len(_doc):
+                    _scale = _zoom / 100 * 2.0  # ×2 pour la résolution de base
+                    _mat   = _fitz.Matrix(_scale, _scale)
+                    _pix   = _doc[_sheet_idx].get_pixmap(matrix=_mat, alpha=False)
+                    st.image(_pix.tobytes("png"), use_container_width=True)
+                else:
+                    st.warning("Page introuvable dans le PDF généré.")
+                _doc.close()
+            except Exception as _e:
+                st.error(f"Erreur de rendu : {_e}")
+        else:
+            # Fallback : rendu HTML via xlsx2html (pas de graphiques)
+            try:
+                from xlsx2html import xlsx2html as _x2h
+                import tempfile as _tf2, os as _os2
+                with _tf2.TemporaryDirectory() as _td:
+                    _tmp = _os2.path.join(_td, _fname_xl)
+                    with open(_tmp, "wb") as _f:
+                        _f.write(_bytes_xl)
+                    _html_out = _os2.path.join(_td, "out.html")
+                    _x2h(_tmp, _html_out, sheet=_sel_sheet)
+                    with open(_html_out, "r", encoding="utf-8") as _f:
+                        _html_content = _f.read()
+                st.components.v1.html(_html_content, height=800, scrolling=True)
+            except Exception as _e:
+                st.error(f"Erreur de rendu HTML : {_e}")
+
+        # Téléchargement du fichier original
+        st.download_button(
+            label="📥 Télécharger le fichier Excel",
+            data=_bytes_xl,
+            file_name=_fname_xl,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="excel_dl_btn",
+        )
