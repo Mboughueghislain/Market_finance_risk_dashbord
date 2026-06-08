@@ -65,14 +65,18 @@ def _resolve_path(raw: str) -> Path:
 
 # ── Chargement de la feuille Parametres ───────────────────────────────────────
 
-EXCEL_FILENAME  = "Création des images.xlsx"
-EXCEL_FALLBACKS = ["Creation des images.xlsx", "Création des images.xlsx", "creation des images.xlsx"]
+EXCEL_FILENAME  = "Création des images.xlsm"
+EXCEL_FALLBACKS = [
+    "Création des images.xlsm",
+    "Creation des images.xlsm",
+    "Création des images.xlsx",
+    "Creation des images.xlsx",
+]
 SHEET_NAME      = "Parametres"
-EXPECTED_COLS   = {"Nom_image", "RISQUE", "CANTON"}
 
 
 def _find_excel(picture_dir: str) -> Path | None:
-    """Cherche le fichier Excel dans le répertoire PICTURE (insensible à la casse/accentuation)."""
+    """Cherche le fichier Excel (.xlsm ou .xlsx) dans le répertoire PICTURE."""
     base = _resolve_path(picture_dir)
     if not base.exists():
         return None
@@ -80,11 +84,12 @@ def _find_excel(picture_dir: str) -> Path | None:
         p = base / name
         if p.exists():
             return p
-    # Recherche insensible à la casse parmi les fichiers .xlsx
+    # Recherche parmi tous les fichiers Excel contenant "image"
     try:
-        for f in base.glob("*.xlsx"):
-            if "image" in f.name.lower():
-                return f
+        for ext in ("*.xlsm", "*.xlsx"):
+            for f in base.glob(ext):
+                if "image" in f.name.lower():
+                    return f
     except Exception:
         pass
     return None
