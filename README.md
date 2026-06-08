@@ -29,10 +29,20 @@ sudo mkdir risques
 ```
 
 Monter le partage réseau :
-
+pour bien monter le repertoire 
 ```bash
-sudo mount -t drvfs '\\sv61file0024\Bureautique\Direction des Risques\' /mnt/risques
+sudo nano /etc/fstab
 ```
+ajouter 
+````bash
+\\sv61file0024\Bureautique\Direction\040des\040Risques /mnt/risques drvfs defaults 0 0
+````
+puis faire Ctrl+O → Entrée → Ctrl+X
+```bash
+sudo mount -a
+ls /mnt/risques
+```
+
 
 Vérifier le répertoire monté :
 
