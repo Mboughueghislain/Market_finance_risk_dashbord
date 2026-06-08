@@ -65,9 +65,43 @@ def _resolve_path(raw: str) -> Path:
 
 # ── Chargement de la feuille Parametres ───────────────────────────────────────
 
-EXCEL_FILENAME = "Création des images.xlsx"
-SHEET_NAME     = "Parametres"
-HEADER_ROW     = 17  # row 18 in Excel (0-indexed = 17)
+EXCEL_FILENAME  = "Création des images.xlsx"
+EXCEL_FALLBACKS = ["Creation des images.xlsx", "Création des images.xlsx", "creation des images.xlsx"]
+SHEET_NAME      = "Parametres"
+EXPECTED_COLS   = {"Nom_image", "RISQUE", "CANTON"}
+
+
+def _find_excel(picture_dir: str) -> Path | None:
+    """Cherche le fichier Excel dans le répertoire PICTURE (insensible à la casse/accentuation)."""
+    base = _resolve_path(picture_dir)
+    if not base.exists():
+        return None
+    for name in EXCEL_FALLBACKS:
+        p = base / name
+        if p.exists():
+            return p
+    # Recherche insensible à la casse parmi les fichiers .xlsx
+    try:
+        for f in base.glob("*.xlsx"):
+            if "image" in f.name.lower():
+                return f
+    except Exception:
+        pass
+    return None
+
+
+def _detect_header_row(excel_path: Path) -> int | None:
+    """Détecte la ligne d'en-tête en cherchant 'Nom_image' dans les 30 premières lignes."""
+    try:
+        raw = pd.read_excel(excel_path, sheet_name=SHEET_NAME, header=None,
+                            usecols="E:K", nrows=35, engine="openpyxl")
+        for i, row in raw.iterrows():
+            vals = [str(v).strip() for v in row if pd.notna(v)]
+            if "Nom_image" in vals and "RISQUE" in vals:
+                return int(i)
+    except Exception:
+        pass
+    return None
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -77,22 +111,30 @@ def load_parametres(picture_dir: str) -> pd.DataFrame | None:
     Retourne None si le fichier n'est pas accessible.
     """
     try:
-        excel_path = _resolve_path(picture_dir) / EXCEL_FILENAME
+        excel_path = _find_excel(picture_dir)
+        if excel_path is None:
+            return None
+        header_row = _detect_header_row(excel_path)
+        if header_row is None:
+            return None
         df = pd.read_excel(
             excel_path,
             sheet_name=SHEET_NAME,
-            header=HEADER_ROW,
+            header=header_row,
             usecols="E:K",
             engine="openpyxl",
         )
         df.columns = ["Fichier", "Onglet", "Nom_image", "RISQUE", "CANTON", "Titre", "Ordre"]
         df = df.dropna(subset=["Nom_image", "RISQUE", "CANTON"])
-        df["RISQUE"]  = df["RISQUE"].astype(str).str.strip().str.upper()
-        df["CANTON"]  = df["CANTON"].astype(str).str.strip().str.upper()
-        df["Ordre"]   = pd.to_numeric(df["Ordre"], errors="coerce").fillna(99).astype(int)
-        df["Titre"]   = df["Titre"].fillna("").astype(str).str.strip()
+        df["RISQUE"]    = df["RISQUE"].astype(str).str.strip().str.upper()
+        df["CANTON"]    = df["CANTON"].astype(str).str.strip().str.upper()
+        df["Ordre"]     = pd.to_numeric(df["Ordre"], errors="coerce").fillna(99).astype(int)
+        df["Titre"]     = df["Titre"].fillna("").astype(str).str.strip()
         df["Nom_image"] = df["Nom_image"].astype(str).str.strip()
-        return df
+        df["Onglet"]    = df["Onglet"].astype(str).str.strip()
+        # Exclure les lignes dont les valeurs ressemblent à des en-têtes
+        df = df[~df["RISQUE"].isin(["RISQUE", "NAN", ""])]
+        return df.reset_index(drop=True)
     except Exception:
         return None
 
@@ -239,22 +281,28 @@ def render_suivi_risques_canton(
     Chaque graphique est montré en 2 colonnes : date_debut (gauche) / date_fin (droite).
     """
     simulation = False
+    excel_ok   = False
+    load_error = ""
 
     # 1. Chargement des paramètres
     df_params = load_parametres(picture_dir)
     if df_params is None:
         simulation = True
+        excel_ok   = False
+        load_error = f"Excel introuvable ou illisible dans : {picture_dir}"
         df_params  = _simulation_parametres()
+    else:
+        excel_ok = True
 
     # 2. Dates disponibles
     available_dates = get_available_dates(archives_dir)
-    if not available_dates:
+    archives_ok = bool(available_dates)
+    if not archives_ok:
         simulation = True
 
     date_d0 = find_closest_date(available_dates, date_debut) if available_dates else None
     date_d1 = find_closest_date(available_dates, date_fin)   if available_dates else None
 
-    # Format d'affichage
     def _fmt(d: str | None) -> str:
         if not d:
             return "—"
@@ -262,17 +310,28 @@ def render_suivi_risques_canton(
 
     # 3. Filtre RISQUE + CANTON (canton exact + ALL)
     canton_excel = CANTON_DISPLAY_TO_EXCEL.get(canton_display, canton_display.replace(" ", "_").upper())
+    has_nom_image = "Nom_image" in df_params.columns
     mask = (df_params["RISQUE"] == risque) & (
         df_params["CANTON"].isin([canton_excel, "ALL"])
     )
     rows = df_params[mask].sort_values("Ordre")
 
+    # ── Diagnostic (expander) ─────────────────────────────────────────────────
+    with st.expander("🔍 Diagnostic", expanded=not excel_ok or not archives_ok):
+        st.markdown(f"**Excel** : {'✅ chargé' if excel_ok else '❌ ' + load_error}")
+        if excel_ok:
+            st.markdown(f"**Lignes dans l'Excel** : {len(df_params)}")
+            st.markdown(f"**Graphiques filtrés ({risque}/{canton_display})** : {len(rows)}")
+        st.markdown(f"**Répertoire ARCHIVES** : {'✅ ' + str(len(available_dates)) + ' dates disponibles' if archives_ok else '❌ aucune image PNG trouvée dans : ' + archives_dir}")
+        if available_dates:
+            st.markdown(f"**Dates disponibles** : {', '.join(available_dates[-5:])}" + (" ..." if len(available_dates) > 5 else ""))
+        st.markdown(f"**Date début sélectionnée** → `{_fmt(date_d0)}` | **Date fin** → `{_fmt(date_d1)}`")
+        if simulation:
+            st.warning("Mode simulation actif — les images affichées sont des placeholders.")
+
     if rows.empty:
         st.info(f"Aucun graphique configuré pour {risque} / {canton_display}.")
         return
-
-    if simulation:
-        st.caption("⚠️ Mode simulation — répertoire non accessible. Les images sont des placeholders.")
 
     # 4. En-tête période
     col_h1, col_h2 = st.columns(2)
@@ -295,9 +354,13 @@ def render_suivi_risques_canton(
 
     # 5. Affichage par paire
     for _, row in rows.iterrows():
-        titre   = row["Titre"]
-        onglet  = row["Onglet"]
-        base    = f"{canton_excel}_{risque}_{onglet}"
+        titre = row["Titre"]
+        # Utilise Nom_image de l'Excel comme source de vérité pour le nom de fichier
+        if has_nom_image and str(row.get("Nom_image", "")).strip():
+            base = _base_name(str(row["Nom_image"]))
+        else:
+            onglet = str(row.get("Onglet", "")).strip()
+            base   = f"{canton_excel}_{risque}_{onglet}"
 
         st.markdown(
             f"<p style='font-weight:600;color:#1a1a2e;margin-bottom:4px'>{titre}</p>",
@@ -309,15 +372,22 @@ def render_suivi_risques_canton(
         for col, date_str in [(col1, date_d0), (col2, date_d1)]:
             with col:
                 if simulation or not date_str:
-                    label = f"{date_str or '?'}_{base}"
-                    img   = _make_placeholder(label)
+                    img = _make_placeholder(f"{date_str or '?'}_{base}")
                 else:
                     img = _load_image(archives_dir, date_str, base)
                     if img is None:
-                        img = _make_placeholder(f"{date_str}_{base} — introuvable")
+                        # Affiche un message clair plutôt qu'un placeholder générique
+                        st.markdown(
+                            f"<div style='border:1px dashed #ccc;border-radius:6px;padding:12px;"
+                            f"text-align:center;color:#888;font-size:0.85em'>"
+                            f"Image non trouvée<br><code>{date_str}_{base}.png</code></div>",
+                            unsafe_allow_html=True,
+                        )
+                        continue
 
-                buf = io.BytesIO()
-                img.save(buf, format="PNG")
-                st.image(buf.getvalue(), use_container_width=True)
+                if img is not None:
+                    buf = io.BytesIO()
+                    img.save(buf, format="PNG")
+                    st.image(buf.getvalue(), use_container_width=True)
 
         st.markdown("<hr style='margin:8px 0;border-color:#e0d0f0'>", unsafe_allow_html=True)
