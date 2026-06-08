@@ -65,14 +65,13 @@ def _resolve_path(raw: str) -> Path:
 
 # ── Chargement de la feuille Parametres ───────────────────────────────────────
 
-EXCEL_FILENAME  = "Création des images.xlsm"
 EXCEL_FALLBACKS = [
     "Création des images.xlsm",
     "Creation des images.xlsm",
     "Création des images.xlsx",
     "Creation des images.xlsx",
 ]
-SHEET_NAME      = "Parametres"
+SHEET_NAMES = ["Parametres", "Paramètres", "parametres", "PARAMETRES", "Parametre", "Sheet1"]
 
 
 def _find_excel(picture_dir: str) -> Path | None:
@@ -84,7 +83,6 @@ def _find_excel(picture_dir: str) -> Path | None:
         p = base / name
         if p.exists():
             return p
-    # Recherche parmi tous les fichiers Excel contenant "image"
     try:
         for ext in ("*.xlsm", "*.xlsx"):
             for f in base.glob(ext):
@@ -95,17 +93,32 @@ def _find_excel(picture_dir: str) -> Path | None:
     return None
 
 
-def _detect_header_row(excel_path: Path) -> int | None:
-    """Détecte la ligne d'en-tête en cherchant 'Nom_image' dans les 30 premières lignes."""
+def _detect_sheet_and_header(excel_path: Path) -> tuple[str, int] | None:
+    """
+    Détecte automatiquement la feuille et la ligne d'en-tête.
+    Cherche une ligne contenant 'RISQUE' et 'CANTON' parmi les 40 premières.
+    """
+    import openpyxl
     try:
-        raw = pd.read_excel(excel_path, sheet_name=SHEET_NAME, header=None,
-                            usecols="E:K", nrows=35, engine="openpyxl")
-        for i, row in raw.iterrows():
-            vals = [str(v).strip() for v in row if pd.notna(v)]
-            if "Nom_image" in vals and "RISQUE" in vals:
-                return int(i)
+        wb = openpyxl.load_workbook(excel_path, read_only=True, data_only=True)
+        actual_sheets = wb.sheetnames
+        wb.close()
     except Exception:
-        pass
+        return None
+
+    candidates = [s for s in SHEET_NAMES if s in actual_sheets]
+    candidates += [s for s in actual_sheets if s not in candidates]
+
+    for sheet in candidates:
+        try:
+            raw = pd.read_excel(excel_path, sheet_name=sheet, header=None,
+                                engine="openpyxl", nrows=40)
+            for i, row in raw.iterrows():
+                vals = [str(v).strip().upper() for v in row if pd.notna(v) and str(v).strip()]
+                if "RISQUE" in vals and "CANTON" in vals:
+                    return (sheet, int(i))
+        except Exception:
+            continue
     return None
 
 
@@ -113,31 +126,56 @@ def _detect_header_row(excel_path: Path) -> int | None:
 def load_parametres(picture_dir: str) -> pd.DataFrame | None:
     """
     Charge la feuille Parametres depuis l'Excel.
+    Détecte automatiquement le nom de la feuille, la ligne d'en-tête et les colonnes.
     Retourne None si le fichier n'est pas accessible.
     """
     try:
         excel_path = _find_excel(picture_dir)
         if excel_path is None:
             return None
-        header_row = _detect_header_row(excel_path)
-        if header_row is None:
+
+        result = _detect_sheet_and_header(excel_path)
+        if result is None:
             return None
-        df = pd.read_excel(
-            excel_path,
-            sheet_name=SHEET_NAME,
-            header=header_row,
-            usecols="E:K",
-            engine="openpyxl",
-        )
-        df.columns = ["Fichier", "Onglet", "Nom_image", "RISQUE", "CANTON", "Titre", "Ordre"]
+        sheet_name, header_row = result
+
+        df = pd.read_excel(excel_path, sheet_name=sheet_name,
+                           header=header_row, engine="openpyxl")
+
+        # Détection dynamique des colonnes par nom (insensible à la casse/variantes)
+        col_map: dict[str, str] = {}
+        for col in df.columns:
+            c = str(col).strip()
+            cu = c.upper()
+            if cu == "RISQUE":
+                col_map["RISQUE"] = c
+            elif cu == "CANTON":
+                col_map["CANTON"] = c
+            elif "IMAGE" in cu:          # "Nom de l'image", "Nom_image", etc.
+                col_map["Nom_image"] = c
+            elif "TITRE" in cu:          # "Titre", "Titre Graphique"
+                col_map["Titre"] = c
+            elif cu == "ORDRE":
+                col_map["Ordre"] = c
+            elif cu == "ONGLET":
+                col_map["Onglet"] = c
+            elif cu == "FICHIER":
+                col_map["Fichier"] = c
+
+        if not {"RISQUE", "CANTON", "Nom_image"}.issubset(col_map):
+            return None
+
+        inv = {v: k for k, v in col_map.items()}
+        df = df[[c for c in inv if c in df.columns]].rename(columns=inv)
+
         df = df.dropna(subset=["Nom_image", "RISQUE", "CANTON"])
         df["RISQUE"]    = df["RISQUE"].astype(str).str.strip().str.upper()
         df["CANTON"]    = df["CANTON"].astype(str).str.strip().str.upper()
-        df["Ordre"]     = pd.to_numeric(df["Ordre"], errors="coerce").fillna(99).astype(int)
-        df["Titre"]     = df["Titre"].fillna("").astype(str).str.strip()
         df["Nom_image"] = df["Nom_image"].astype(str).str.strip()
-        df["Onglet"]    = df["Onglet"].astype(str).str.strip()
-        # Exclure les lignes dont les valeurs ressemblent à des en-têtes
+        df["Ordre"]     = pd.to_numeric(df.get("Ordre", 99), errors="coerce").fillna(99).astype(int)
+        df["Titre"]     = df["Titre"].fillna("").astype(str).str.strip() if "Titre" in df.columns else ""
+        df["Onglet"]    = df["Onglet"].astype(str).str.strip() if "Onglet" in df.columns else ""
+
         df = df[~df["RISQUE"].isin(["RISQUE", "NAN", ""])]
         return df.reset_index(drop=True)
     except Exception:
