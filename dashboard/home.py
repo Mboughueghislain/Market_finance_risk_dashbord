@@ -1042,11 +1042,69 @@ with suivi_pf_tab:
         #)
 
 # =========================
-# ONGLET : INDICATEURS DE RISQUE (à compléter)
+# ONGLET : INDICATEURS DE RISQUE
 # =========================
 with suivi_indic_tab:
-    st.markdown("### Suivi des indicateurs de risque globaux")
-    st.info("Contenu à venir.")
+    from modules.suivi_risques import render_suivi_risques_canton, load_parametres, get_available_dates  # type: ignore
+
+    _col_title_indic, _col_refresh_indic = st.columns([8, 1])
+    with _col_title_indic:
+        st.markdown("### Suivi des indicateurs de risque globaux")
+    with _col_refresh_indic:
+        if st.button("🔄 Rafraîchir", key="btn_refresh_suivi", help="Recharge l'Excel et les images depuis le réseau"):
+            load_parametres.clear()
+            get_available_dates.clear()
+            st.rerun()
+
+    indic_sdg_tab, indic_valo_tab, indic_defaut_tab = st.tabs([
+        "📉 Risque SDG",
+        "📊 Risque de Valorisation",
+        "⚠️ Risque de Défaut",
+    ])
+
+    # Cantons dans l'ordre imposé, filtrés par la sélection du filtre sidebar
+    _ordre_cantons_indic = ["BPCEM AG", "CGP AG", "CGP RS"]
+    _cantons_indic = [c for c in _ordre_cantons_indic if c in canton]
+
+    _sr_picture  = _cfg.get("suivi_risques_picture_dir", "")
+    _sr_archives = _cfg.get("suivi_risques_archives_dir", "")
+
+    with indic_sdg_tab:
+        st.markdown("#### 📉 Risque SDG")
+        st.caption("Données communes à tous les cantons.")
+        render_suivi_risques_canton("SDG", "ALL", date_debut, date_fin, _sr_picture, _sr_archives)
+
+    with indic_valo_tab:
+        st.markdown("#### 📊 Risque de Valorisation")
+        if not _cantons_indic:
+            st.warning("Aucun canton sélectionné dans le filtre.")
+        else:
+            _valo_ctn_tabs = st.tabs(_cantons_indic)
+            if "BPCEM AG" in _cantons_indic:
+                with _valo_ctn_tabs[_cantons_indic.index("BPCEM AG")]:
+                    render_suivi_risques_canton("VALO", "BPCEM AG", date_debut, date_fin, _sr_picture, _sr_archives)
+            if "CGP AG" in _cantons_indic:
+                with _valo_ctn_tabs[_cantons_indic.index("CGP AG")]:
+                    render_suivi_risques_canton("VALO", "CGP AG", date_debut, date_fin, _sr_picture, _sr_archives)
+            if "CGP RS" in _cantons_indic:
+                with _valo_ctn_tabs[_cantons_indic.index("CGP RS")]:
+                    render_suivi_risques_canton("VALO", "CGP RS", date_debut, date_fin, _sr_picture, _sr_archives)
+
+    with indic_defaut_tab:
+        st.markdown("#### ⚠️ Risque de Défaut")
+        if not _cantons_indic:
+            st.warning("Aucun canton sélectionné dans le filtre.")
+        else:
+            _defaut_ctn_tabs = st.tabs(_cantons_indic)
+            if "BPCEM AG" in _cantons_indic:
+                with _defaut_ctn_tabs[_cantons_indic.index("BPCEM AG")]:
+                    render_suivi_risques_canton("DEFAUT", "BPCEM AG", date_debut, date_fin, _sr_picture, _sr_archives)
+            if "CGP AG" in _cantons_indic:
+                with _defaut_ctn_tabs[_cantons_indic.index("CGP AG")]:
+                    render_suivi_risques_canton("DEFAUT", "CGP AG", date_debut, date_fin, _sr_picture, _sr_archives)
+            if "CGP RS" in _cantons_indic:
+                with _defaut_ctn_tabs[_cantons_indic.index("CGP RS")]:
+                    render_suivi_risques_canton("DEFAUT", "CGP RS", date_debut, date_fin, _sr_picture, _sr_archives)
 
 # =========================
 # ONGLET : DATA
@@ -1355,6 +1413,38 @@ if show_admin and admin_tab is not None:
                     for _topn_key in ["detail_taux_topn", "det_action_topn", "det_immo_topn", "det_spread_topn", "det_pf_topn"]:
                         st.session_state.pop(_topn_key, None)
                     st.session_state["_admin_params_success"] = f"Top N par défaut mis à jour : {'Tous' if _new_top_n == 0 else _new_top_n}."
+                    st.rerun()
+
+                st.markdown("---")
+
+                # ── 6. Suivi des indicateurs de risque ───────────────────────
+                st.markdown("#### 🖼️ Suivi des indicateurs de risque — chemins")
+                st.caption(
+                    "Répertoire `PICTURE` : contient `Création des images.xlsx`. "
+                    "Répertoire `ARCHIVES` : contient les images PNG."
+                )
+                with st.form("form_suivi_risques"):
+                    _new_picture_dir = st.text_input(
+                        "Répertoire PICTURE",
+                        value=_p.get("suivi_risques_picture_dir", ""),
+                        help="Chemin vers le dossier contenant l'Excel Création des images.xlsx",
+                    )
+                    _new_archives_dir = st.text_input(
+                        "Répertoire ARCHIVES",
+                        value=_p.get("suivi_risques_archives_dir", ""),
+                        help="Chemin vers le dossier contenant les images PNG",
+                    )
+                    _submit_sr = st.form_submit_button("💾 Enregistrer")
+
+                if _submit_sr:
+                    _p["suivi_risques_picture_dir"]  = _new_picture_dir.strip()
+                    _p["suivi_risques_archives_dir"] = _new_archives_dir.strip()
+                    save_config(_p)
+                    st.session_state["app_config"] = _p
+                    from modules.suivi_risques import load_parametres, get_available_dates  # type: ignore
+                    load_parametres.clear()
+                    get_available_dates.clear()
+                    st.session_state["_admin_params_success"] = "Chemins Suivi des indicateurs mis à jour."
                     st.rerun()
 
         with admin_diag_tab:

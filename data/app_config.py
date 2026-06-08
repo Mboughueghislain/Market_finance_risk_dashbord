@@ -29,6 +29,8 @@ def check_password(password: str, hashed: str) -> bool:
 
 DEFAULTS: dict = {
     "source_dir": "/mnt/risques/4. Risques Financiers/00-0-REPORTING/01 - HISTO SAS/0000T0",
+    "suivi_risques_picture_dir": "\\\\sv61file0024\\Bureautique\\Direction des Risques\\4. Risques Financiers\\00-0-REPORTING\\00 - PROD RRF\\Suivi Risques\\PICTURE",
+    "suivi_risques_archives_dir": "\\\\sv61file0024\\Bureautique\\Direction des Risques\\4. Risques Financiers\\00-0-REPORTING\\00 - PROD RRF\\Suivi Risques\\ARCHIVES",
     "var_quantile": 0.75,
     "default_top_n": 20,
     "backup_enabled": False,
