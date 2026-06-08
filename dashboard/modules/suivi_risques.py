@@ -37,18 +37,29 @@ CANTON_DISPLAY_TO_EXCEL: dict[str, str] = {
 
 
 def _resolve_path(raw: str) -> Path:
-    """Convertit un chemin Windows UNC ou local en Path utilisable."""
+    """Convertit un chemin Windows (UNC ou lettre de lecteur) en Path utilisable sous WSL/Linux."""
+    raw = raw.strip()
+
+    # Chemin lettre de lecteur Windows : Z:\foo\bar → /mnt/z/foo/bar
+    if len(raw) >= 2 and raw[1] == ":" and raw[0].isalpha():
+        drive = raw[0].lower()
+        rest  = raw[2:].replace("\\", "/").lstrip("/")
+        return Path(f"/mnt/{drive}/{rest}")
+
+    # Chemin UNC Windows \\serveur\... → non montable directement sous WSL.
+    # On tente /mnt/<serveur>/... mais ça ne fonctionnera que si le partage
+    # est monté manuellement. La solution recommandée est de mapper le partage
+    # comme lettre de lecteur dans Windows (ex. Z:) et d'utiliser /mnt/z/...
     if raw.startswith("\\\\") or raw.startswith("//"):
-        # Chemin UNC Windows → tenter via /mnt ou tel quel selon l'OS
         try:
-            p = Path(PureWindowsPath(raw).as_posix().lstrip("/"))
+            posix = PureWindowsPath(raw).as_posix().lstrip("/")
         except Exception:
-            p = Path(raw)
-        # Sur WSL, les chemins UNC sont souvent sous /mnt/
-        wsl = Path("/mnt") / p
+            posix = raw.lstrip("/\\")
+        wsl = Path("/mnt") / posix
         if wsl.exists():
             return wsl
-        return p
+        return Path(raw)
+
     return Path(raw)
 
 
