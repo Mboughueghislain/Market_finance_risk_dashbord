@@ -3,25 +3,17 @@
 Suivi des Indicateurs de Risque — affichage des images par risque / canton / période.
 
 Source de données :
-  - Excel  : {suivi_risques_dir}/PICTURE/Création des images.xlsx  (feuille Parametres)
-  - Images : {suivi_risques_dir}/ARCHIVES/{YYYYMMDD}_{CANTON}_{RISQUE}_{ONGLET}.png
-
-Logique :
-  - Pour chaque graphique (Titre Graphique + Ordre) filtré par RISQUE et CANTON,
-    on affiche côte-à-côte l'image à date_debut et l'image à date_fin.
-  - CANTON=ALL s'affiche dans tous les onglets cantons.
-  - Simulation automatique si le répertoire n'est pas accessible.
+  - Excel  : {picture_dir}/Création des images.xlsm  (feuille Parametres)
+  - Images : {archives_dir}/{YYYYMMDD}_{CANTON}_{RISQUE}_{ONGLET}.png
 """
 
 from __future__ import annotations
 
-import io
 import re
 from pathlib import Path, PureWindowsPath
 
 import pandas as pd
 import streamlit as st
-from PIL import Image, ImageDraw, ImageFont
 
 
 # ── Mapping CANTON Excel → libellé dashboard ──────────────────────────────────
@@ -46,10 +38,7 @@ def _resolve_path(raw: str) -> Path:
         rest  = raw[2:].replace("\\", "/").lstrip("/")
         return Path(f"/mnt/{drive}/{rest}")
 
-    # Chemin UNC Windows \\serveur\... → non montable directement sous WSL.
-    # On tente /mnt/<serveur>/... mais ça ne fonctionnera que si le partage
-    # est monté manuellement. La solution recommandée est de mapper le partage
-    # comme lettre de lecteur dans Windows (ex. Z:) et d'utiliser /mnt/z/...
+    # Chemin UNC Windows → nécessite un montage via fstab (voir README)
     if raw.startswith("\\\\") or raw.startswith("//"):
         try:
             posix = PureWindowsPath(raw).as_posix().lstrip("/")
@@ -142,18 +131,18 @@ def load_parametres(picture_dir: str) -> pd.DataFrame | None:
         df = pd.read_excel(excel_path, sheet_name=sheet_name,
                            header=header_row, engine="openpyxl")
 
-        # Détection dynamique des colonnes par nom (insensible à la casse/variantes)
+        # Détection dynamique des colonnes par nom
         col_map: dict[str, str] = {}
         for col in df.columns:
-            c = str(col).strip()
+            c  = str(col).strip()
             cu = c.upper()
             if cu == "RISQUE":
                 col_map["RISQUE"] = c
             elif cu == "CANTON":
                 col_map["CANTON"] = c
-            elif "IMAGE" in cu:          # "Nom de l'image", "Nom_image", etc.
+            elif "IMAGE" in cu:
                 col_map["Nom_image"] = c
-            elif "TITRE" in cu:          # "Titre", "Titre Graphique"
+            elif "TITRE" in cu:
                 col_map["Titre"] = c
             elif cu == "ORDRE":
                 col_map["Ordre"] = c
@@ -186,9 +175,7 @@ def load_parametres(picture_dir: str) -> pd.DataFrame | None:
 
 @st.cache_data(ttl=60, show_spinner=False)
 def get_available_dates(archives_dir: str) -> list[str]:
-    """
-    Scanne ARCHIVES et retourne les dates YYYYMMDD disponibles (triées croissant).
-    """
+    """Scanne ARCHIVES et retourne les dates YYYYMMDD disponibles (triées croissant)."""
     try:
         path = _resolve_path(archives_dir)
         dates: set[str] = set()
@@ -219,96 +206,6 @@ def _base_name(nom_image: str) -> str:
     return m.group(1) if m else nom_image.strip()
 
 
-# ── Génération d'images placeholder (mode simulation) ─────────────────────────
-
-def _make_placeholder(label: str, width: int = 600, height: int = 380) -> Image.Image:
-    """Génère une image PNG de remplacement avec texte centré."""
-    colors = {
-        "SDG":    (113, 74, 128),
-        "VALO":   (74, 128, 113),
-        "DEFAUT": (200, 80, 80),
-    }
-    risque = next((r for r in colors if r in label.upper()), None)
-    bg     = colors.get(risque, (90, 90, 120)) if risque else (90, 90, 120)
-    img    = Image.new("RGB", (width, height), color=bg)
-    draw   = ImageDraw.Draw(img)
-    # Fond légèrement plus clair en bas pour le texte
-    draw.rectangle([(0, height - 80), (width, height)], fill=(240, 240, 240))
-    # Texte principal
-    lines = [label[i:i+50] for i in range(0, min(len(label), 150), 50)]
-    y = height // 2 - len(lines) * 14
-    for line in lines:
-        w_txt = len(line) * 8
-        draw.text(((width - w_txt) // 2, y), line, fill=(255, 255, 255))
-        y += 22
-    # Label placeholder en bas
-    draw.text((10, height - 60), "[ SIMULATION ]", fill=(80, 80, 80))
-    draw.text((10, height - 40), label[:80], fill=(60, 60, 60))
-    return img
-
-
-# ── Données de simulation ──────────────────────────────────────────────────────
-
-_SIM_ROWS = [
-    # SDG - ALL
-    ("SDG",    "ALL",      "LIMITES", "EPS - Encours et enveloppes résiduelles par SdG",    1),
-    ("SDG",    "ALL",      "SDG",     "EPS - Suivi des Sociétés de Gestion",                2),
-    ("SDG",    "ALL",      "CDG",     "EPS - Suivi des SdG par catégorie de gestion",       3),
-    # DEFAUT - CGP_AG
-    ("DEFAUT", "CGP_AG",   "GRAPH1",  "CGP AG - KPI : Risque de Défaut global",            1),
-    ("DEFAUT", "CGP_AG",   "GRAPH2",  "CGP AG - Cotation du risque ligne à ligne",         2),
-    ("DEFAUT", "CGP_AG",   "GRAPH3",  "CGP AG - Répartition cotation niveau 2",            3),
-    ("DEFAUT", "CGP_AG",   "GRAPH4",  "CGP AG - Répartition cotation niveau 3",            4),
-    # DEFAUT - CGP_RS
-    ("DEFAUT", "CGP_RS",   "GRAPH1",  "CGP RS - KPI : Risque de Défaut global",            1),
-    ("DEFAUT", "CGP_RS",   "GRAPH2",  "CGP RS - Cotation du risque ligne à ligne",         2),
-    ("DEFAUT", "CGP_RS",   "GRAPH3",  "CGP RS - Répartition cotation niveau 2",            3),
-    ("DEFAUT", "CGP_RS",   "GRAPH4",  "CGP RS - Répartition cotation niveau 3",            4),
-    # DEFAUT - BPCEM_AG
-    ("DEFAUT", "BPCEM_AG", "GRAPH1",  "BPCE Mutuelle - KPI : Risque de Défaut global",     1),
-    ("DEFAUT", "BPCEM_AG", "GRAPH2",  "BPCE Mutuelle - Cotation du risque ligne à ligne",  2),
-    ("DEFAUT", "BPCEM_AG", "GRAPH3",  "BPCE Mutuelle - Répartition cotation niveau 2",     3),
-    ("DEFAUT", "BPCEM_AG", "GRAPH4",  "BPCE Mutuelle - Répartition cotation niveau 3",     4),
-    # VALO - CGP_AG
-    ("VALO",   "CGP_AG",   "GRAPH1",  "CGP Actif Général - KPI : Risque de valorisation global / PRE",      1),
-    ("VALO",   "CGP_AG",   "GRAPH2",  "CGP Actif Général - KPI : Risque de valorisation global / PDD",      2),
-    ("VALO",   "CGP_AG",   "GRAPH3",  "CGP Actif Général - KPI : Risque de valorisation global / PV mobilisable", 3),
-    ("VALO",   "CGP_AG",   "GRAPH4",  "CGP Actif Général - Risque de valorisation ligne à ligne / PDD spécifique", 4),
-    ("VALO",   "CGP_AG",   "GRAPH5",  "CGP Actif Général - Concentration émetteur cotation niveau 2",       5),
-    ("VALO",   "CGP_AG",   "GRAPH6",  "CGP Actif Général - Concentration émetteur cotation niveau 3",       6),
-    # VALO - CGP_RS
-    ("VALO",   "CGP_RS",   "GRAPH1",  "CGP Retraite Supplémentaire - KPI : Risque de valorisation global / PRE",      1),
-    ("VALO",   "CGP_RS",   "GRAPH2",  "CGP Retraite Supplémentaire - KPI : Risque de valorisation global / PDD",      2),
-    ("VALO",   "CGP_RS",   "GRAPH3",  "CGP Retraite Supplémentaire - KPI : Risque de valorisation global / PV mobilisable", 3),
-    ("VALO",   "CGP_RS",   "GRAPH4",  "CGP Retraite Supplémentaire - Risque de valorisation ligne à ligne / PDD spécifique", 4),
-    ("VALO",   "CGP_RS",   "GRAPH5",  "CGP Retraite Supplémentaire - Concentration émetteur cotation niveau 2",       5),
-    ("VALO",   "CGP_RS",   "GRAPH6",  "CGP Retraite Supplémentaire - Concentration émetteur cotation niveau 3",       6),
-    # VALO - BPCEM_AG
-    ("VALO",   "BPCEM_AG", "GRAPH1",  "BPCE Mutuelle - KPI : Risque de valorisation global / PRE",      1),
-    ("VALO",   "BPCEM_AG", "GRAPH2",  "BPCE Mutuelle - KPI : Risque de valorisation global / PDD",      2),
-    ("VALO",   "BPCEM_AG", "GRAPH3",  "BPCE Mutuelle - KPI : Risque de valorisation global / PV mobilisable", 3),
-    ("VALO",   "BPCEM_AG", "GRAPH4",  "BPCE Mutuelle - Risque de valorisation ligne à ligne / PDD spécifique", 4),
-    ("VALO",   "BPCEM_AG", "GRAPH5",  "BPCE Mutuelle - Concentration émetteur cotation niveau 2",       5),
-    ("VALO",   "BPCEM_AG", "GRAPH6",  "BPCE Mutuelle - Concentration émetteur cotation niveau 3",       6),
-]
-
-def _simulation_parametres() -> pd.DataFrame:
-    return pd.DataFrame(_SIM_ROWS, columns=["RISQUE", "CANTON", "Onglet", "Titre", "Ordre"])
-
-
-# ── Chargement d'une image depuis ARCHIVES ────────────────────────────────────
-
-def _load_image(archives_dir: str, date_str: str, base: str) -> Image.Image | None:
-    """Charge l'image {date_str}_{base}.png depuis ARCHIVES. None si absente."""
-    try:
-        path = _resolve_path(archives_dir) / f"{date_str}_{base}.png"
-        if path.exists():
-            return Image.open(path)
-    except Exception:
-        pass
-    return None
-
-
 # ── Rendu principal ────────────────────────────────────────────────────────────
 
 def render_suivi_risques_canton(
@@ -323,54 +220,53 @@ def render_suivi_risques_canton(
     Affiche les graphiques d'un risque pour un canton donné.
     Chaque graphique est montré en 2 colonnes : date_debut (gauche) / date_fin (droite).
     """
-    simulation = False
     excel_ok   = False
     load_error = ""
 
     # 1. Chargement des paramètres
     df_params = load_parametres(picture_dir)
     if df_params is None:
-        simulation = True
-        excel_ok   = False
         load_error = f"Excel introuvable ou illisible dans : {picture_dir}"
-        df_params  = _simulation_parametres()
     else:
         excel_ok = True
 
     # 2. Dates disponibles
     available_dates = get_available_dates(archives_dir)
-    archives_ok = bool(available_dates)
-    if not archives_ok:
-        simulation = True
+    archives_ok     = bool(available_dates)
 
     date_d0 = find_closest_date(available_dates, date_debut) if available_dates else None
     date_d1 = find_closest_date(available_dates, date_fin)   if available_dates else None
 
     def _fmt(d: str | None) -> str:
-        if not d:
-            return "—"
-        return f"{d[6:8]}/{d[4:6]}/{d[:4]}"
+        return f"{d[6:8]}/{d[4:6]}/{d[:4]}" if d else "—"
 
-    # 3. Filtre RISQUE + CANTON (canton exact + ALL)
-    canton_excel = CANTON_DISPLAY_TO_EXCEL.get(canton_display, canton_display.replace(" ", "_").upper())
-    has_nom_image = "Nom_image" in df_params.columns
-    mask = (df_params["RISQUE"] == risque) & (
-        df_params["CANTON"].isin([canton_excel, "ALL"])
-    )
-    rows = df_params[mask].sort_values("Ordre")
-
-    # ── Diagnostic (expander) ─────────────────────────────────────────────────
+    # ── Diagnostic ────────────────────────────────────────────────────────────
     with st.expander("🔍 Diagnostic", expanded=not excel_ok or not archives_ok):
         st.markdown(f"**Excel** : {'✅ chargé' if excel_ok else '❌ ' + load_error}")
         if excel_ok:
+            canton_excel_diag = CANTON_DISPLAY_TO_EXCEL.get(canton_display, canton_display.replace(" ", "_").upper())
+            mask_diag = (df_params["RISQUE"] == risque) & (df_params["CANTON"].isin([canton_excel_diag, "ALL"]))
             st.markdown(f"**Lignes dans l'Excel** : {len(df_params)}")
-            st.markdown(f"**Graphiques filtrés ({risque}/{canton_display})** : {len(rows)}")
-        st.markdown(f"**Répertoire ARCHIVES** : {'✅ ' + str(len(available_dates)) + ' dates disponibles' if archives_ok else '❌ aucune image PNG trouvée dans : ' + archives_dir}")
+            st.markdown(f"**Graphiques filtrés ({risque}/{canton_display})** : {mask_diag.sum()}")
+        archives_msg = f"✅ {len(available_dates)} dates disponibles" if archives_ok else f"❌ aucune image PNG trouvée dans : {archives_dir}"
+        st.markdown(f"**Répertoire ARCHIVES** : {archives_msg}")
         if available_dates:
             st.markdown(f"**Dates disponibles** : {', '.join(available_dates[-5:])}" + (" ..." if len(available_dates) > 5 else ""))
-        st.markdown(f"**Date début sélectionnée** → `{_fmt(date_d0)}` | **Date fin** → `{_fmt(date_d1)}`")
-        if simulation:
-            st.warning("Mode simulation actif — les images affichées sont des placeholders.")
+        st.markdown(f"**Date début** → `{_fmt(date_d0)}` | **Date fin** → `{_fmt(date_d1)}`")
+
+    if not excel_ok:
+        st.error(f"Impossible de charger le fichier Excel. Vérifiez le chemin PICTURE dans les paramètres admin.")
+        return
+
+    if not archives_ok:
+        st.error(f"Aucune image trouvée dans le répertoire ARCHIVES. Vérifiez le chemin dans les paramètres admin.")
+        return
+
+    # 3. Filtre RISQUE + CANTON
+    canton_excel  = CANTON_DISPLAY_TO_EXCEL.get(canton_display, canton_display.replace(" ", "_").upper())
+    has_nom_image = "Nom_image" in df_params.columns
+    mask  = (df_params["RISQUE"] == risque) & (df_params["CANTON"].isin([canton_excel, "ALL"]))
+    rows  = df_params[mask].sort_values("Ordre")
 
     if rows.empty:
         st.info(f"Aucun graphique configuré pour {risque} / {canton_display}.")
@@ -396,9 +292,9 @@ def render_suivi_risques_canton(
     st.markdown("<div style='margin-top:8px'></div>", unsafe_allow_html=True)
 
     # 5. Affichage par paire
+    archives_path = _resolve_path(archives_dir)
     for _, row in rows.iterrows():
         titre = row["Titre"]
-        # Utilise Nom_image de l'Excel comme source de vérité pour le nom de fichier
         if has_nom_image and str(row.get("Nom_image", "")).strip():
             base = _base_name(str(row["Nom_image"]))
         else:
@@ -411,26 +307,24 @@ def render_suivi_risques_canton(
         )
 
         col1, col2 = st.columns(2)
-
         for col, date_str in [(col1, date_d0), (col2, date_d1)]:
             with col:
-                if simulation or not date_str:
-                    img = _make_placeholder(f"{date_str or '?'}_{base}")
+                if not date_str:
+                    st.markdown(
+                        "<div style='border:1px dashed #ccc;border-radius:6px;padding:12px;"
+                        "text-align:center;color:#888;font-size:0.85em'>Aucune date disponible</div>",
+                        unsafe_allow_html=True,
+                    )
+                    continue
+                img_path = archives_path / f"{date_str}_{base}.png"
+                if img_path.exists():
+                    st.image(str(img_path), use_container_width=True)
                 else:
-                    img = _load_image(archives_dir, date_str, base)
-                    if img is None:
-                        # Affiche un message clair plutôt qu'un placeholder générique
-                        st.markdown(
-                            f"<div style='border:1px dashed #ccc;border-radius:6px;padding:12px;"
-                            f"text-align:center;color:#888;font-size:0.85em'>"
-                            f"Image non trouvée<br><code>{date_str}_{base}.png</code></div>",
-                            unsafe_allow_html=True,
-                        )
-                        continue
-
-                if img is not None:
-                    buf = io.BytesIO()
-                    img.save(buf, format="PNG")
-                    st.image(buf.getvalue(), use_container_width=True)
+                    st.markdown(
+                        f"<div style='border:1px dashed #ccc;border-radius:6px;padding:12px;"
+                        f"text-align:center;color:#888;font-size:0.85em'>"
+                        f"Image non trouvée<br><code>{date_str}_{base}.png</code></div>",
+                        unsafe_allow_html=True,
+                    )
 
         st.markdown("<hr style='margin:8px 0;border-color:#e0d0f0'>", unsafe_allow_html=True)
