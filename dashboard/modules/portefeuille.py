@@ -830,11 +830,11 @@ def render_portefeuille_tab(df_selection: pd.DataFrame, use_transpa: bool, date_
                 detail_grp.append("Libellé Parent")
             if has_gestion:
                 detail_grp.append("TYPE_GESTION_LIB")
-            detail_grp += [CLASS_COL, SUBCLASS_COL]
             if _lei_col in dff_det.columns:
                 detail_grp.append(_lei_col)
             if _lib_col in dff_det.columns:
                 detail_grp.append(_lib_col)
+            detail_grp += [CLASS_COL, SUBCLASS_COL]
             detail_grp += ["ID", "LIBELLE"]
             detail_grp = [c for c in detail_grp if c in dff_det.columns]
 
@@ -867,7 +867,39 @@ def render_portefeuille_tab(df_selection: pd.DataFrame, use_transpa: bool, date_
                     key="det_pf_tendance",
                 )
 
-            # --- Ligne 2 de filtres : Libellé, ID, Top N ---
+            # --- Ligne 2 de filtres : Libellé Parent, LEI, Libellé Groupe/Émetteur ---
+            _lei_label = f"LEI {vue_par}"
+            _lib_label = f"Libellé {vue_par}"
+            _libparent_dispo = (
+                sorted(dff_det["Libellé Parent"].dropna().astype(str).unique().tolist())
+                if _has_parent and "Libellé Parent" in dff_det.columns else []
+            )
+            _lei_dispo = (
+                sorted(dff_det[_lei_col].dropna().astype(str).unique().tolist())
+                if _lei_col in dff_det.columns else []
+            )
+            _lib_dispo = (
+                sorted(dff_det[_lib_col].dropna().astype(str).unique().tolist())
+                if _lib_col in dff_det.columns else []
+            )
+            fcol_p, fcol_lei, fcol_lib = st.columns(3)
+            with fcol_p:
+                filtre_libelle_parent = safe_multiselect(
+                    "Libellé Parent", options=_libparent_dispo, default=[],
+                    key="det_pf_libelle_parent"
+                ) if _libparent_dispo else []
+            with fcol_lei:
+                filtre_lei = safe_multiselect(
+                    _lei_label, options=_lei_dispo, default=[],
+                    key="det_pf_lei"
+                ) if _lei_dispo else []
+            with fcol_lib:
+                filtre_lib_grp = safe_multiselect(
+                    _lib_label, options=_lib_dispo, default=[],
+                    key="det_pf_lib_grp"
+                ) if _lib_dispo else []
+
+            # --- Ligne 3 de filtres : Libellé, ID, Top N ---
             fcol5, fcol6, fcol7 = st.columns(3)
             with fcol5:
                 search_lib = st.text_input("Libellé (recherche)", value="", key="det_pf_lib")
@@ -892,6 +924,12 @@ def render_portefeuille_tab(df_selection: pd.DataFrame, use_transpa: bool, date_
                 dff_det = dff_det[dff_det[SUBCLASS_COL].isin(filtre_sous_classe)]
             if filtre_type_gestion and has_gestion:
                 dff_det = dff_det[dff_det["TYPE_GESTION_LIB"].isin(filtre_type_gestion)]
+            if filtre_libelle_parent and _has_parent and "Libellé Parent" in dff_det.columns:
+                dff_det = dff_det[dff_det["Libellé Parent"].isin(filtre_libelle_parent)]
+            if filtre_lei and _lei_col in dff_det.columns:
+                dff_det = dff_det[dff_det[_lei_col].isin(filtre_lei)]
+            if filtre_lib_grp and _lib_col in dff_det.columns:
+                dff_det = dff_det[dff_det[_lib_col].isin(filtre_lib_grp)]
 
             # --- Groupby & calculs ---
             debut_det = (
