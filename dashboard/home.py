@@ -637,14 +637,6 @@ st.sidebar.markdown(
 # LOGIQUE FILTRES & df_selection
 # =========================
 
-def _reset_filters():
-    # Réinitialise les filtres dépendants de la source (canton, portefeuille, dates)
-    # appelé quand on bascule Base Parent ↔ Base Transpa
-    for k in ["canton", "pf", "date_debut", "date_fin"]:
-        if k in st.session_state:
-            del st.session_state[k]
-
-
 # Toggle base Transpa / Parent
 st.sidebar.header("Source des données")
 col1, col2 = st.sidebar.columns([1, 3])
@@ -654,7 +646,6 @@ with col1:
         "",
         value=False,
         key="use_transpa",
-        on_change=_reset_filters,
     )
     
 with col2:
@@ -721,6 +712,15 @@ dates_uniques = filter_end_of_month(dates_uniques)
 n = len(dates_uniques)
 idx_end = n - 1                # date la plus récente (T)
 idx_start = max(n - 2, 0)      # date t-1 si possible
+
+# Valide les dates en session_state : si elles n'existent plus dans la nouvelle source, on prend le défaut
+_dates_list = list(dates_uniques)
+for _key, _default_idx in [("date_debut", idx_start), ("date_fin", idx_end)]:
+    _stored = st.session_state.get(_key)
+    if _stored is not None:
+        _stored_norm = pd.Timestamp(_stored).normalize()
+        if _stored_norm not in _dates_list:
+            st.session_state[_key] = _dates_list[_default_idx]
 
 date_debut = st.sidebar.selectbox(
     "📅 Date de Début",
