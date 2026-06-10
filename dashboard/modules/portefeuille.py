@@ -825,6 +825,8 @@ def render_portefeuille_tab(df_selection: pd.DataFrame, use_transpa: bool, date_
             detail_grp = []
             if _has_parent:
                 detail_grp.append("Libellé Parent")
+            if has_gestion:
+                detail_grp.append("TYPE_GESTION_LIB")
             detail_grp += [CLASS_COL, SUBCLASS_COL]
             if _vue_col in dff_det.columns:
                 detail_grp.append(_vue_col)
@@ -917,23 +919,24 @@ def render_portefeuille_tab(df_selection: pd.DataFrame, use_transpa: bool, date_
 
             # Renommage
             rename_det = {
-                "Libellé Parent": "Libellé Parent",
-                CLASS_COL:        "Classe d'actifs",
-                SUBCLASS_COL:     "Sous-classe d'actifs",
-                "LIB_GROUPE":     "Groupe",
-                "LIB_EMETTEUR":   "Émetteur",
-                "ID":             "ID",
-                "LIBELLE":        "Libellé",
-                "VM_FIN":         "VM (M€)",
-                "Delta_VM":       "Δ VM (M€)",
-                "Delta_VM_pct":   "Δ VM (%)",
+                "Libellé Parent":   "Libellé Parent",
+                "TYPE_GESTION_LIB": "Type de gestion",
+                CLASS_COL:          "Classe d'actifs",
+                SUBCLASS_COL:       "Sous-classe d'actifs",
+                "LIB_GROUPE":       "Groupe",
+                "LIB_EMETTEUR":     "Émetteur",
+                "ID":               "ID",
+                "LIBELLE":          "Libellé",
+                "VM_FIN":           "VM (M€)",
+                "Delta_VM":         "Δ VM (M€)",
+                "Delta_VM_pct":     "Δ VM (%)",
             }
             # Filtre Tendance appliqué avant sélection des colonnes
             if filtre_tendance and "Tendance" in res_det.columns:
                 res_det = res_det[res_det["Tendance"].isin(filtre_tendance)]
 
             det_cols = [
-                c for c in detail_grp + ["VM_FIN", "Delta_VM", "Delta_VM_pct", "Alloc (%)", "Δ Alloc (%)"]
+                c for c in detail_grp + ["VM_FIN", "Delta_VM", "Delta_VM_pct", "Alloc (%)"]
                 if c in res_det.columns
             ]
             aff_det = res_det[det_cols].rename(columns=rename_det)
