@@ -787,10 +787,7 @@ def render_portefeuille_tab(df_selection: pd.DataFrame, use_transpa: bool, date_
     show_detail = st.toggle("Afficher le détail par titre", value=False, key="pf_detail_toggle")
     if show_detail:
 
-        detail_grp = [CLASS_COL, SUBCLASS_COL, "ID", "LIBELLE"]
-        detail_grp = [c for c in detail_grp if c in df_filtre.columns]
-
-        if len(detail_grp) >= 2:
+        if len([c for c in [CLASS_COL, SUBCLASS_COL, "ID", "LIBELLE"] if c in df_filtre.columns]) >= 2:
             dff_det = df_filtre.copy()
             dff_det["DATE_TRANSPA"] = pd.to_datetime(dff_det["DATE_TRANSPA"]).dt.date
 
@@ -805,6 +802,34 @@ def render_portefeuille_tab(df_selection: pd.DataFrame, use_transpa: bool, date_
                 types_gestion_dispo = [g for g in _GESTION_ORDER if g in dff_det["TYPE_GESTION_LIB"].unique()]
             else:
                 types_gestion_dispo = []
+
+            # ── Libellé Parent (base transpa uniquement) ──────────────────────
+            _has_parent = all(c in dff_det.columns for c in ["CODE_NIV0", "CODE_NIV4", "LIBELLE_P"])
+            if _has_parent:
+                dff_det["Libellé Parent"] = dff_det.apply(
+                    lambda r: "EPS" if str(r["CODE_NIV0"]) == str(r["CODE_NIV4"])
+                    else str(r["LIBELLE_P"]),
+                    axis=1,
+                )
+
+            # ── Radio Vue par ─────────────────────────────────────────────────
+            _vue_opts   = ["Type de groupe", "Type d'émetteur"]
+            _vue_cols   = {"Type de groupe": "LIB_GROUPE", "Type d'émetteur": "LIB_EMETTEUR"}
+            _r1, _r2, _ = st.columns([2, 2, 4])
+            with _r1:
+                vue_par = st.radio("Vue par", options=_vue_opts, horizontal=True,
+                                   key="det_pf_vue_par")
+            _vue_col = _vue_cols[vue_par]
+
+            # ── Colonnes de regroupement ──────────────────────────────────────
+            detail_grp = []
+            if _has_parent:
+                detail_grp.append("Libellé Parent")
+            detail_grp += [CLASS_COL, SUBCLASS_COL]
+            if _vue_col in dff_det.columns:
+                detail_grp.append(_vue_col)
+            detail_grp += ["ID", "LIBELLE"]
+            detail_grp = [c for c in detail_grp if c in dff_det.columns]
 
             # Valeurs disponibles pour les filtres structurés
             classes_dispo  = sorted(dff_det[CLASS_COL].dropna().astype(str).unique().tolist())
@@ -892,13 +917,16 @@ def render_portefeuille_tab(df_selection: pd.DataFrame, use_transpa: bool, date_
 
             # Renommage
             rename_det = {
-                CLASS_COL:    "Classe d'actifs",
-                SUBCLASS_COL: "Sous-classe d'actifs",
-                "ID":         "ID",
-                "LIBELLE":    "Libellé",
-                "VM_FIN":     "VM (M€)",
-                "Delta_VM":   "Δ VM (M€)",
-                "Delta_VM_pct": "Δ VM (%)",
+                "Libellé Parent": "Libellé Parent",
+                CLASS_COL:        "Classe d'actifs",
+                SUBCLASS_COL:     "Sous-classe d'actifs",
+                "LIB_GROUPE":     "Groupe",
+                "LIB_EMETTEUR":   "Émetteur",
+                "ID":             "ID",
+                "LIBELLE":        "Libellé",
+                "VM_FIN":         "VM (M€)",
+                "Delta_VM":       "Δ VM (M€)",
+                "Delta_VM_pct":   "Δ VM (%)",
             }
             # Filtre Tendance appliqué avant sélection des colonnes
             if filtre_tendance and "Tendance" in res_det.columns:
