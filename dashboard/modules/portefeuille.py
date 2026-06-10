@@ -813,13 +813,16 @@ def render_portefeuille_tab(df_selection: pd.DataFrame, use_transpa: bool, date_
                 )
 
             # ── Radio Vue par ─────────────────────────────────────────────────
-            _vue_opts   = ["Type de groupe", "Type d'émetteur"]
-            _vue_cols   = {"Type de groupe": "LIB_GROUPE", "Type d'émetteur": "LIB_EMETTEUR"}
+            _vue_opts = ["Type de groupe", "Type d'émetteur"]
+            # LEI = identifiant, Lib = libellé
+            _vue_lei  = {"Type de groupe": "ID_GROUPE",  "Type d'émetteur": "ID_EMETTEUR"}
+            _vue_lib  = {"Type de groupe": "LIB_GROUPE", "Type d'émetteur": "LIB_EMETTEUR"}
             _r1, _r2, _ = st.columns([2, 2, 4])
             with _r1:
                 vue_par = st.radio("Vue par", options=_vue_opts, horizontal=True,
                                    key="det_pf_vue_par")
-            _vue_col = _vue_cols[vue_par]
+            _lei_col = _vue_lei[vue_par]
+            _lib_col = _vue_lib[vue_par]
 
             # ── Colonnes de regroupement ──────────────────────────────────────
             detail_grp = []
@@ -828,8 +831,10 @@ def render_portefeuille_tab(df_selection: pd.DataFrame, use_transpa: bool, date_
             if has_gestion:
                 detail_grp.append("TYPE_GESTION_LIB")
             detail_grp += [CLASS_COL, SUBCLASS_COL]
-            if _vue_col in dff_det.columns:
-                detail_grp.append(_vue_col)
+            if _lei_col in dff_det.columns:
+                detail_grp.append(_lei_col)
+            if _lib_col in dff_det.columns:
+                detail_grp.append(_lib_col)
             detail_grp += ["ID", "LIBELLE"]
             detail_grp = [c for c in detail_grp if c in dff_det.columns]
 
@@ -923,8 +928,10 @@ def render_portefeuille_tab(df_selection: pd.DataFrame, use_transpa: bool, date_
                 "TYPE_GESTION_LIB": "Type de gestion",
                 CLASS_COL:          "Classe d'actifs",
                 SUBCLASS_COL:       "Sous-classe d'actifs",
-                "LIB_GROUPE":       "LEI Groupe",
-                "LIB_EMETTEUR":     "LEI Émetteur",
+                "ID_GROUPE":        "LEI Groupe",
+                "LIB_GROUPE":       "Libellé Groupe",
+                "ID_EMETTEUR":      "LEI Émetteur",
+                "LIB_EMETTEUR":     "Libellé Émetteur",
                 "ID":               "ID",
                 "LIBELLE":          "Libellé",
                 "VM_FIN":           "VM (M€)",
