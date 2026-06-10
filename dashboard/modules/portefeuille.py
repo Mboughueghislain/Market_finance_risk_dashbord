@@ -807,7 +807,7 @@ def render_portefeuille_tab(df_selection: pd.DataFrame, use_transpa: bool, date_
             _has_parent = all(c in dff_det.columns for c in ["CODE_NIV0", "CODE_NIV4", "LIBELLE_P"])
             if _has_parent:
                 dff_det["Libellé Parent"] = dff_det.apply(
-                    lambda r: "EPS" if str(r["CODE_NIV0"]) == str(r["CODE_NIV4"])
+                    lambda r: "En directe" if str(r["CODE_NIV0"]) == str(r["CODE_NIV4"])
                     else str(r["LIBELLE_P"]),
                     axis=1,
                 )
