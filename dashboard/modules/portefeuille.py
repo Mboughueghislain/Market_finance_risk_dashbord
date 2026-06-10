@@ -802,7 +802,8 @@ def render_portefeuille_tab(df_selection: pd.DataFrame, use_transpa: bool, date_
                 types_gestion_dispo = []
 
             # Valeurs disponibles pour les filtres structurés
-            classes_dispo = sorted(dff_det[CLASS_COL].dropna().astype(str).unique().tolist())
+            classes_dispo  = sorted(dff_det[CLASS_COL].dropna().astype(str).unique().tolist())
+            all_sc_dispo   = sorted(dff_det[SUBCLASS_COL].dropna().astype(str).unique().tolist())
 
             # --- Ligne 1 de filtres : Classe, Sous-classe, Type de gestion, Tendance ---
             fcol1, fcol2, fcol3, fcol4 = st.columns(4)
@@ -811,10 +812,11 @@ def render_portefeuille_tab(df_selection: pd.DataFrame, use_transpa: bool, date_
                     "Classe d'actifs", options=classes_dispo, default=[], key="det_pf_classe"
                 )
             with fcol2:
-                sc_base = dff_det[dff_det[CLASS_COL].isin(filtre_classe)] if filtre_classe else dff_det
+                sc_base  = dff_det[dff_det[CLASS_COL].isin(filtre_classe)] if filtre_classe else dff_det
                 sc_dispo = sorted(sc_base[SUBCLASS_COL].dropna().astype(str).unique().tolist())
                 filtre_sous_classe = safe_multiselect(
-                    "Sous-classe d'actifs", options=sc_dispo, default=[], key="det_pf_sous_classe"
+                    "Sous-classe d'actifs", options=sc_dispo, default=[], key="det_pf_sous_classe",
+                    validate_options=all_sc_dispo,
                 )
             with fcol3:
                 filtre_type_gestion = safe_multiselect(
