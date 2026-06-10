@@ -496,14 +496,18 @@ def render_portefeuille_tab(df_selection: pd.DataFrame, use_transpa: bool, date_
 
         # ----- Multiselect Classe d'actifs -----
         with col_class:
-            selected_classes = st.multiselect(
+            selected_classes = safe_multiselect(
                 "Classe d'actifs",
                 options=all_classes,
-                default=all_classes,  # par défaut : toutes sélectionnées
-                placeholder="Choisissez les classes d'actifs"
+                default=all_classes,
+                placeholder="Choisissez les classes d'actifs",
+                key="pf_classe_actif",
             )
 
         # On restreint les sous-classes aux classes sélectionnées (si filtrées)
+        all_sous_classes_full = (
+            df_selection[SUBCLASS_COL].dropna().astype(str).sort_values().unique().tolist()
+        )
         if selected_classes:
             df_for_sous = df_selection[df_selection[CLASS_COL].isin(selected_classes)]
         else:
@@ -520,30 +524,31 @@ def render_portefeuille_tab(df_selection: pd.DataFrame, use_transpa: bool, date_
 
         # ----- Multiselect Sous-classe d'actifs -----
         with col_sous_class:
-            selected_sous_classes = st.multiselect(
+            selected_sous_classes = safe_multiselect(
                 "Sous-classe d'actifs",
                 options=all_sous_classes,
                 default=[],
-                placeholder="Choisissez les sous-classes d'actifs"
+                placeholder="Choisissez les sous-classes d'actifs",
+                key="pf_sous_classe_actif",
+                validate_options=all_sous_classes_full,
             )
 
         # ----- Multiselect Type de taux -----
         with col_taux:
-            selected_types_taux = st.multiselect(
+            selected_types_taux = safe_multiselect(
                 "Type de taux",
                 options=_TYPES_TAUX_OPTIONS,
                 default=_TYPES_TAUX_OPTIONS,
-                placeholder="Choisissez un type de taux"
+                placeholder="Choisissez un type de taux",
+                key="pf_type_taux",
             )
 
         # ----- Niveau d'analyse -----
-        # Si l'utilisateur a sélectionné des sous-classes, on met par défaut "Sous-classe"
-        default_index = 1 if selected_sous_classes else 0
         with col_niveau:
             niveau_analyse = st.radio(
                 "Niveau d'analyse",
                 options=["Classe d'actifs", "Sous-classe d'actifs"],
-                index=default_index,
+                key="pf_niveau_analyse",
             )
 
     # On prépare un DataFrame filtré selon les choix utilisateur
