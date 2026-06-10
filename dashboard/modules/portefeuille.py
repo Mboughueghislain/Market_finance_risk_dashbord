@@ -784,7 +784,7 @@ def render_portefeuille_tab(df_selection: pd.DataFrame, use_transpa: bool, date_
     # TABLEAU DÉTAIL PAR TITRE
     # ======================================================
     st.markdown("---")
-    show_detail = st.toggle("Afficher le détail par titre", value=False)
+    show_detail = st.toggle("Afficher le détail par titre", value=False, key="pf_detail_toggle")
     if show_detail:
 
         detail_grp = [CLASS_COL, SUBCLASS_COL, "ID", "LIBELLE"]

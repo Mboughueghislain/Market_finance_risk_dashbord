@@ -869,8 +869,8 @@ def render_risque_spread_tab(df_selection: pd.DataFrame, date_debut, date_fin):
     choix_dim_affichage = st.radio(
         "Vue par :",
         options=["Type de groupe", "Type d'émetteur"],
-        index=0,
         horizontal=True,
+        key="spread_vue_radio",
     )
 
     # -------------------------
