@@ -5,6 +5,7 @@ import numpy as np
 import streamlit as st
 import plotly.express as px
 from modules.risque_action import _pick_first_existing_col
+from utils import safe_multiselect
 
 from modules.format_utils import (
     trend,
@@ -456,11 +457,11 @@ def _render_detail_immo_section(dff: pd.DataFrame, d0, d1):
     # Filtres
     fc1, fc2, fc3, fc4 = st.columns(4)
     with fc1:
-        filtre_sous_classe = st.multiselect("Sous-classe d'actif", options=sous_classes_dispo, default=[], key="det_immo_sc")
+        filtre_sous_classe = safe_multiselect("Sous-classe d'actif", options=sous_classes_dispo, default=[], key="det_immo_sc")
     with fc2:
-        filtre_pays = st.multiselect("Pays", options=pays_dispo, default=[], key="det_immo_pays")
+        filtre_pays = safe_multiselect("Pays", options=pays_dispo, default=[], key="det_immo_pays")
     with fc3:
-        filtre_type_gestion = st.multiselect("Type de gestion", options=types_gestion_dispo, default=[], key="det_immo_gestion")
+        filtre_type_gestion = safe_multiselect("Type de gestion", options=types_gestion_dispo, default=[], key="det_immo_gestion")
     with fc4:
         _cfg_top_n  = st.session_state.get("app_config", {}).get("default_top_n", 20)
         _opts_topn  = [20, 50, 100, 0]

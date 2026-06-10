@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import streamlit as st
+from utils import safe_multiselect
 
 from modules.format_utils import (
     trend,
@@ -1191,12 +1192,12 @@ def render_risque_spread_tab(df_selection: pd.DataFrame, date_debut, date_fin):
         fcol1, fcol2, fcol3 = st.columns([2, 2, 1])
         with fcol1:
             opts_dim = sorted(aff_corps[choix_dim_affichage].dropna().astype(str).unique().tolist())
-            sel_dim  = st.multiselect(choix_dim_affichage, options=opts_dim, default=[],
-                                      key="det_spread_dim")
+            sel_dim  = safe_multiselect(choix_dim_affichage, options=opts_dim, default=[],
+                                        key="det_spread_dim")
         with fcol2:
             opts_not = sorted(aff_corps["Notation"].dropna().astype(str).unique().tolist())
-            sel_not  = st.multiselect("Notation", options=opts_not, default=[],
-                                      key="det_spread_not")
+            sel_not  = safe_multiselect("Notation", options=opts_not, default=[],
+                                        key="det_spread_not")
         with fcol3:
             _cfg_top_n  = st.session_state.get("app_config", {}).get("default_top_n", 20)
             _opts_topn  = [20, 50, 100, 0]

@@ -25,6 +25,7 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 from typing import Optional, List, Tuple
+from utils import safe_multiselect
 
 from modules.format_utils import (
     trend,
@@ -962,13 +963,13 @@ def _render_detail_action_section(dff: pd.DataFrame, d0, d1):
     # Ligne 1 de filtres
     fc1, fc2, fc3, fc4 = st.columns(4)
     with fc1:
-        filtre_sous_classe = st.multiselect("Sous-classe d'actif", options=sous_classes_dispo, default=[], key="det_action_sc")
+        filtre_sous_classe = safe_multiselect("Sous-classe d'actif", options=sous_classes_dispo, default=[], key="det_action_sc")
     with fc2:
-        filtre_pays = st.multiselect("Pays", options=pays_dispo, default=[], key="det_action_pays")
+        filtre_pays = safe_multiselect("Pays", options=pays_dispo, default=[], key="det_action_pays")
     with fc3:
-        filtre_secteur = st.multiselect("Secteur", options=secteurs_dispo, default=[], key="det_action_secteur")
+        filtre_secteur = safe_multiselect("Secteur", options=secteurs_dispo, default=[], key="det_action_secteur")
     with fc4:
-        filtre_type_gestion = st.multiselect("Type de gestion", options=types_gestion_dispo, default=[], key="det_action_gestion")
+        filtre_type_gestion = safe_multiselect("Type de gestion", options=types_gestion_dispo, default=[], key="det_action_gestion")
 
     # Ligne 2 de filtres
     fc5, fc6, fc7 = st.columns([2, 2, 1])

@@ -6,6 +6,7 @@ import plotly.express as px
 import streamlit as st
 
 from typing import Optional
+from utils import safe_multiselect
 from modules.format_utils import (
     fmt_fr,
     trend,
@@ -806,17 +807,17 @@ def render_portefeuille_tab(df_selection: pd.DataFrame, use_transpa: bool, date_
             # --- Ligne 1 de filtres : Classe, Sous-classe, Type de gestion, Tendance ---
             fcol1, fcol2, fcol3, fcol4 = st.columns(4)
             with fcol1:
-                filtre_classe = st.multiselect(
+                filtre_classe = safe_multiselect(
                     "Classe d'actifs", options=classes_dispo, default=[], key="det_pf_classe"
                 )
             with fcol2:
                 sc_base = dff_det[dff_det[CLASS_COL].isin(filtre_classe)] if filtre_classe else dff_det
                 sc_dispo = sorted(sc_base[SUBCLASS_COL].dropna().astype(str).unique().tolist())
-                filtre_sous_classe = st.multiselect(
+                filtre_sous_classe = safe_multiselect(
                     "Sous-classe d'actifs", options=sc_dispo, default=[], key="det_pf_sous_classe"
                 )
             with fcol3:
-                filtre_type_gestion = st.multiselect(
+                filtre_type_gestion = safe_multiselect(
                     "Type de gestion", options=types_gestion_dispo, default=[], key="det_pf_type_gestion"
                 ) if types_gestion_dispo else []
             with fcol4:
