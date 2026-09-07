@@ -292,6 +292,7 @@ def _prepare_spread_base(
     return dff, d0, d1, dim_col, col_lib, ordre_notation
 
 
+@st.cache_data(show_spinner=False)
 def build_spread_global_section(
     dff: pd.DataFrame,
     d0,
@@ -575,6 +576,7 @@ def build_spread_global_section(
     return d0_ts, d1_ts, view_final, fig_scatter, fig_treemap
 
 # Bloc Souverain
+@st.cache_data(show_spinner=False)
 def build_spread_souverain_block(
     dff: pd.DataFrame,
     d0,
@@ -732,6 +734,7 @@ def build_spread_souverain_block(
     return top10_souv, fig_geo
 
 # Bloc Corporate
+@st.cache_data(show_spinner=False)
 def build_spread_corporate_block(
 dff: pd.DataFrame,
 d0,

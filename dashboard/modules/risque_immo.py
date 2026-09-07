@@ -20,6 +20,7 @@ from modules.format_utils import (
 # 1) Builder réutilisable : calcul + fig, SANS affichage Streamlit
 # ======================================================================
 
+@st.cache_data(show_spinner=False)
 def build_risque_immo_section(
     df_selection: pd.DataFrame,
     date_debut,

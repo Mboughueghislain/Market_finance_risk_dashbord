@@ -352,6 +352,7 @@ def _build_concentration_table(
 # Render principal
 # ==========================================================
 
+@st.cache_data(show_spinner=False)
 def build_risque_action_issuer_section(
     dff: pd.DataFrame,
     d0: pd.Timestamp,
@@ -445,6 +446,7 @@ def build_risque_action_issuer_section(
 
     return label_header, df_aff, fig_treemap
 
+@st.cache_data(show_spinner=False)
 def build_risque_action_geo_section(
     dff: pd.DataFrame,
     d0: pd.Timestamp,
@@ -600,6 +602,7 @@ def build_risque_action_geo_section(
 
     return df_aff_geo, fig_map
 
+@st.cache_data(show_spinner=False)
 def build_risque_action_sector_section(
     dff: pd.DataFrame,
     d0: pd.Timestamp,

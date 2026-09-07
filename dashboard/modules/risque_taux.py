@@ -305,6 +305,7 @@ def _build_var_stress_table(
     return df_var_view
 
 
+@st.cache_data(show_spinner=False)
 def build_taux_duration_block(
     dff: pd.DataFrame,
     dim_col: str,
@@ -413,6 +414,7 @@ def build_taux_duration_block(
         "fig_total": fig_total,
     }
     
+@st.cache_data(show_spinner=False)
 def build_taux_var_block(
     dff: pd.DataFrame,
     dim_col: str,
