@@ -259,7 +259,7 @@ def render_suivi_risques_canton(
         st.markdown(f"**Répertoire ARCHIVES** : {archives_msg}")
         if available_dates:
             st.markdown(f"**Dates disponibles** : {', '.join(available_dates[-5:])}" + (" ..." if len(available_dates) > 5 else ""))
-        st.markdown(f"**Date début** → `{_fmt(date_d0)}` | **Date fin** → `{_fmt(date_d1)}`")
+        st.markdown(f"**Date fin** → `{_fmt(date_d1)}`")
 
     if not excel_ok:
         st.error(f"Impossible de charger le fichier Excel. Vérifiez le chemin PICTURE dans les paramètres admin.")
