@@ -217,11 +217,15 @@ def render_suivi_risques_canton(
     picture_dir: str,
     archives_dir: str,
     onglet_filter: str | None = None,
+    selected_cantons: list[str] | None = None,
 ) -> None:
     """
     Affiche les graphiques d'un risque pour un canton donné (date fin uniquement).
-    risque        : code RISQUE dans l'Excel et dans le nom de fichier (SDG, VALO, DEFAUT…)
-    onglet_filter : si fourni, filtre en plus sur la colonne Onglet de l'Excel (pour KPI).
+    risque           : code RISQUE dans l'Excel et dans le nom de fichier (SDG, VALO, DEFAUT…)
+    onglet_filter    : filtre sur la colonne Onglet de l'Excel (pour KPI).
+    selected_cantons : cantons sélectionnés dans la sidebar (libellés dashboard).
+                       Les lignes CANTON=ALL sont toujours affichées.
+                       Si None, tous les cantons sont affichés.
     """
     excel_ok   = False
     load_error = ""
@@ -267,11 +271,21 @@ def render_suivi_risques_canton(
 
     # 3. Filtre RISQUE + CANTON (+ Onglet si précisé)
     canton_excel = CANTON_DISPLAY_TO_EXCEL.get(canton_display, canton_display.replace(" ", "_").upper())
-    # canton_display="ALL" → on affiche tous les cantons de ce risque (pas de filtre canton)
-    if canton_display == "ALL":
-        mask = (df_params["RISQUE"] == risque)
+
+    # Cantons Excel autorisés selon la sélection sidebar
+    # CANTON=ALL dans l'Excel = graphe commun à tous → toujours affiché
+    if selected_cantons:
+        allowed_excel = ["ALL"] + [
+            CANTON_DISPLAY_TO_EXCEL.get(c, c.replace(" ", "_").upper())
+            for c in selected_cantons
+        ]
     else:
-        mask = (df_params["RISQUE"] == risque) & (df_params["CANTON"].isin([canton_excel, "ALL"]))
+        allowed_excel = None  # pas de filtre → tout afficher
+
+    mask = df_params["RISQUE"] == risque
+    if allowed_excel is not None:
+        mask = mask & df_params["CANTON"].isin(allowed_excel)
+
     if onglet_filter and "Onglet" in df_params.columns:
         mask = mask & (df_params["Onglet"].astype(str).str.strip() == onglet_filter)
     rows = df_params[mask].sort_values(["CANTON", "Ordre"])

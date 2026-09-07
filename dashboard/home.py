@@ -1071,14 +1071,17 @@ with suivi_indic_tab:
 
     with indic_sdg_tab:
         st.markdown("#### 📉 Suivi Marché")
+        # SDG = données communes (CANTON=ALL dans Excel) → pas de filtre canton
         render_suivi_risques_canton("SDG", "ALL", date_debut, date_fin, _sr_picture, _sr_archives)
 
     with indic_valo_tab:
         st.markdown("#### 📊 Risque SDG")
         _valo_subtabs = st.tabs(["📊 Risque SDG", "🔍 Fiabilité de la valorisation"])
         with _valo_subtabs[0]:
-            render_suivi_risques_canton("VALO", "ALL", date_debut, date_fin, _sr_picture, _sr_archives)
+            render_suivi_risques_canton("VALO", "ALL", date_debut, date_fin, _sr_picture, _sr_archives,
+                                        selected_cantons=canton)
         with _valo_subtabs[1]:
+            # FIAB_VALO = CANTON=ALL dans Excel → pas de filtre canton
             render_suivi_risques_canton("FIAB_VALO", "ALL", date_debut, date_fin, _sr_picture, _sr_archives)
 
     with indic_defaut_tab:
@@ -1092,19 +1095,19 @@ with suivi_indic_tab:
         ])
         with _kpi_tabs[0]:
             render_suivi_risques_canton("DEFAUT", "ALL", date_debut, date_fin, _sr_picture, _sr_archives,
-                                        onglet_filter="Cotation du risque")
+                                        onglet_filter="Cotation du risque", selected_cantons=canton)
         with _kpi_tabs[1]:
             render_suivi_risques_canton("DEFAUT", "ALL", date_debut, date_fin, _sr_picture, _sr_archives,
-                                        onglet_filter="Niveau de risque")
+                                        onglet_filter="Niveau de risque", selected_cantons=canton)
         with _kpi_tabs[2]:
             render_suivi_risques_canton("DEFAUT", "ALL", date_debut, date_fin, _sr_picture, _sr_archives,
-                                        onglet_filter="Indicateur de risque")
+                                        onglet_filter="Indicateur de risque", selected_cantons=canton)
         with _kpi_tabs[3]:
             render_suivi_risques_canton("DEFAUT", "ALL", date_debut, date_fin, _sr_picture, _sr_archives,
-                                        onglet_filter="Gestion directe")
+                                        onglet_filter="Gestion directe", selected_cantons=canton)
         with _kpi_tabs[4]:
             render_suivi_risques_canton("DEFAUT", "ALL", date_debut, date_fin, _sr_picture, _sr_archives,
-                                        onglet_filter="Définition des indicateurs")
+                                        onglet_filter="Définition des indicateurs", selected_cantons=canton)
 
 # =========================
 # ONGLET : DATA
