@@ -433,9 +433,10 @@ def build_taux_var_block(
     # On enlève TOTAL pour les graphes
     df_plot = df_var_view[df_var_view[DURATION_LABEL_COL] != "TOTAL"].copy()
 
+    _var_chart_measures = ["VaR 95% (M€)", "VaR 99% (M€)"]
     df_plot_long = df_plot.melt(
         id_vars=DURATION_LABEL_COL,
-        value_vars=VAR_MEASURES_ORDER,
+        value_vars=_var_chart_measures,
         var_name="Mesure",
         value_name="Valeur_MEUR",
     )
@@ -447,7 +448,7 @@ def build_taux_var_block(
         y="Valeur_MEUR",
         color="Mesure",
         barmode="group",
-        category_orders={"Mesure": VAR_MEASURES_ORDER},
+        category_orders={"Mesure": _var_chart_measures},
         labels={
             DURATION_LABEL_COL: "Duration",
             "Valeur_MEUR": "Millions",
@@ -480,7 +481,7 @@ def build_taux_var_block(
         y="Valeur_MEUR",
         color="Mesure",
         barmode="group",
-        category_orders={"Mesure": VAR_MEASURES_ORDER},
+        category_orders={"Mesure": _var_chart_measures},
         labels={
             DURATION_LABEL_COL: "",
             "Valeur_MEUR": "Millions",
@@ -897,7 +898,7 @@ def render_risque_taux_tab(df_selection: pd.DataFrame, date_debut, date_fin):
     # 3) Var. période & stress (VaR 95 / VaR 99)
     # --------------------------------------------------------------
     st.markdown("---")
-    st.markdown("### Variation par période & Stress par segment de duration")
+    st.markdown("### Variation sur la période & Stress par segment de duration")
 
     var_block = build_taux_var_block(dff, dim_col, d0, d1, order_duration)
     df_var_view = var_block["df_var_view"]

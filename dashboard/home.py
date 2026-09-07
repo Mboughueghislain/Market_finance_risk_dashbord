@@ -843,7 +843,7 @@ _authenticator.logout("⏻  Se déconnecter", location="sidebar", key="btn_logou
 # =========================
 # ONGLES PRINCIPAUX
 # =========================
-_tab_labels = ["Suivi du Portefeuille", "Suivi des Indicateurs de Risque", "Data", "Rapport"]
+_tab_labels = ["Suivi du Portefeuille", "Suivi des risques", "Data", "Rapport"]
 if show_admin:
     _tab_labels.append("⚙️ Admin")
 _has_excel_viewer = bool(st.session_state.get("_excel_viewer_bytes"))
@@ -1057,9 +1057,9 @@ with suivi_indic_tab:
             st.rerun()
 
     indic_sdg_tab, indic_valo_tab, indic_defaut_tab = st.tabs([
-        "📉 Risque SDG",
-        "📊 Risque de Valorisation",
-        "⚠️ Risque de Défaut",
+        "📉 Suivi Marché",
+        "📊 Risque SDG",
+        "⚠️ KPI",
     ])
 
     # Cantons dans l'ordre imposé, filtrés par la sélection du filtre sidebar
@@ -1070,41 +1070,41 @@ with suivi_indic_tab:
     _sr_archives = _cfg.get("suivi_risques_archives_dir", "")
 
     with indic_sdg_tab:
-        st.markdown("#### 📉 Risque SDG")
-        st.caption("Données communes à tous les cantons.")
+        st.markdown("#### 📉 Suivi Marché")
         render_suivi_risques_canton("SDG", "ALL", date_debut, date_fin, _sr_picture, _sr_archives)
 
     with indic_valo_tab:
-        st.markdown("#### 📊 Risque de Valorisation")
-        if not _cantons_indic:
-            st.warning("Aucun canton sélectionné dans le filtre.")
-        else:
-            _valo_ctn_tabs = st.tabs(_cantons_indic)
-            if "BPCEM AG" in _cantons_indic:
-                with _valo_ctn_tabs[_cantons_indic.index("BPCEM AG")]:
-                    render_suivi_risques_canton("VALO", "BPCEM AG", date_debut, date_fin, _sr_picture, _sr_archives)
-            if "CGP AG" in _cantons_indic:
-                with _valo_ctn_tabs[_cantons_indic.index("CGP AG")]:
-                    render_suivi_risques_canton("VALO", "CGP AG", date_debut, date_fin, _sr_picture, _sr_archives)
-            if "CGP RS" in _cantons_indic:
-                with _valo_ctn_tabs[_cantons_indic.index("CGP RS")]:
-                    render_suivi_risques_canton("VALO", "CGP RS", date_debut, date_fin, _sr_picture, _sr_archives)
+        st.markdown("#### 📊 Risque SDG")
+        _valo_subtabs = st.tabs(["📊 Risque SDG", "🔍 Fiabilité de la valorisation"])
+        with _valo_subtabs[0]:
+            render_suivi_risques_canton("VALO", "ALL", date_debut, date_fin, _sr_picture, _sr_archives)
+        with _valo_subtabs[1]:
+            render_suivi_risques_canton("FIAB_VALO", "ALL", date_debut, date_fin, _sr_picture, _sr_archives)
 
     with indic_defaut_tab:
-        st.markdown("#### ⚠️ Risque de Défaut")
-        if not _cantons_indic:
-            st.warning("Aucun canton sélectionné dans le filtre.")
-        else:
-            _defaut_ctn_tabs = st.tabs(_cantons_indic)
-            if "BPCEM AG" in _cantons_indic:
-                with _defaut_ctn_tabs[_cantons_indic.index("BPCEM AG")]:
-                    render_suivi_risques_canton("DEFAUT", "BPCEM AG", date_debut, date_fin, _sr_picture, _sr_archives)
-            if "CGP AG" in _cantons_indic:
-                with _defaut_ctn_tabs[_cantons_indic.index("CGP AG")]:
-                    render_suivi_risques_canton("DEFAUT", "CGP AG", date_debut, date_fin, _sr_picture, _sr_archives)
-            if "CGP RS" in _cantons_indic:
-                with _defaut_ctn_tabs[_cantons_indic.index("CGP RS")]:
-                    render_suivi_risques_canton("DEFAUT", "CGP RS", date_debut, date_fin, _sr_picture, _sr_archives)
+        st.markdown("#### ⚠️ KPI")
+        _kpi_tabs = st.tabs([
+            "📋 Cotation du risque",
+            "📊 Niveau de risque",
+            "📈 Indicateur de risque",
+            "🏢 Gestion directe",
+            "📖 Définition des indicateurs",
+        ])
+        with _kpi_tabs[0]:
+            render_suivi_risques_canton("DEFAUT", "ALL", date_debut, date_fin, _sr_picture, _sr_archives,
+                                        onglet_filter="Cotation du risque")
+        with _kpi_tabs[1]:
+            render_suivi_risques_canton("DEFAUT", "ALL", date_debut, date_fin, _sr_picture, _sr_archives,
+                                        onglet_filter="Niveau de risque")
+        with _kpi_tabs[2]:
+            render_suivi_risques_canton("DEFAUT", "ALL", date_debut, date_fin, _sr_picture, _sr_archives,
+                                        onglet_filter="Indicateur de risque")
+        with _kpi_tabs[3]:
+            render_suivi_risques_canton("DEFAUT", "ALL", date_debut, date_fin, _sr_picture, _sr_archives,
+                                        onglet_filter="Gestion directe")
+        with _kpi_tabs[4]:
+            render_suivi_risques_canton("DEFAUT", "ALL", date_debut, date_fin, _sr_picture, _sr_archives,
+                                        onglet_filter="Définition des indicateurs")
 
 # =========================
 # ONGLET : DATA

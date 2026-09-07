@@ -14,6 +14,7 @@ from pathlib import Path, PureWindowsPath
 
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 
 # ── Mapping CANTON Excel → libellé dashboard ──────────────────────────────────
@@ -215,10 +216,12 @@ def render_suivi_risques_canton(
     date_fin,
     picture_dir: str,
     archives_dir: str,
+    onglet_filter: str | None = None,
 ) -> None:
     """
-    Affiche les graphiques d'un risque pour un canton donné.
-    Chaque graphique est montré en 2 colonnes : date_debut (gauche) / date_fin (droite).
+    Affiche les graphiques d'un risque pour un canton donné (date fin uniquement).
+    risque        : code RISQUE dans l'Excel et dans le nom de fichier (SDG, VALO, DEFAUT…)
+    onglet_filter : si fourni, filtre en plus sur la colonne Onglet de l'Excel (pour KPI).
     """
     excel_ok   = False
     load_error = ""
@@ -262,69 +265,84 @@ def render_suivi_risques_canton(
         st.error(f"Aucune image trouvée dans le répertoire ARCHIVES. Vérifiez le chemin dans les paramètres admin.")
         return
 
-    # 3. Filtre RISQUE + CANTON
-    canton_excel  = CANTON_DISPLAY_TO_EXCEL.get(canton_display, canton_display.replace(" ", "_").upper())
-    has_nom_image = "Nom_image" in df_params.columns
-    mask  = (df_params["RISQUE"] == risque) & (df_params["CANTON"].isin([canton_excel, "ALL"]))
-    rows  = df_params[mask].sort_values("Ordre")
+    # 3. Filtre RISQUE + CANTON (+ Onglet si précisé)
+    canton_excel = CANTON_DISPLAY_TO_EXCEL.get(canton_display, canton_display.replace(" ", "_").upper())
+    # canton_display="ALL" → on affiche tous les cantons de ce risque (pas de filtre canton)
+    if canton_display == "ALL":
+        mask = (df_params["RISQUE"] == risque)
+    else:
+        mask = (df_params["RISQUE"] == risque) & (df_params["CANTON"].isin([canton_excel, "ALL"]))
+    if onglet_filter and "Onglet" in df_params.columns:
+        mask = mask & (df_params["Onglet"].astype(str).str.strip() == onglet_filter)
+    rows = df_params[mask].sort_values(["CANTON", "Ordre"])
 
     if rows.empty:
         st.info(f"Aucun graphique configuré pour {risque} / {canton_display}.")
         return
 
-    # 4. En-tête période
-    col_h1, col_h2 = st.columns(2)
-    with col_h1:
-        st.markdown(
-            f"<div style='text-align:center;font-weight:600;color:#714A80;"
-            f"border-bottom:2px solid #714A80;padding-bottom:4px'>"
-            f"📅 Date début — {_fmt(date_d0)}</div>",
-            unsafe_allow_html=True,
-        )
-    with col_h2:
-        st.markdown(
-            f"<div style='text-align:center;font-weight:600;color:#714A80;"
-            f"border-bottom:2px solid #c4a8d4;padding-bottom:4px'>"
-            f"📅 Date fin — {_fmt(date_d1)}</div>",
-            unsafe_allow_html=True,
-        )
-
+    # 4. En-tête période (date fin uniquement)
+    st.markdown(
+        f"<div style='text-align:center;font-weight:600;color:#714A80;"
+        f"border-bottom:2px solid #c4a8d4;padding-bottom:4px'>"
+        f"📅 Date fin — {_fmt(date_d1)}</div>",
+        unsafe_allow_html=True,
+    )
     st.markdown("<div style='margin-top:8px'></div>", unsafe_allow_html=True)
 
-    # 5. Affichage par paire
+    # 5. Affichage — nom de fichier : {date}_{canton}_{risque}_{onglet}.{ext}
     archives_path = _resolve_path(archives_dir)
-    for _, row in rows.iterrows():
-        titre = row["Titre"]
-        if has_nom_image and str(row.get("Nom_image", "")).strip():
-            base = _base_name(str(row["Nom_image"]))
+
+    def _display_file(file_path: Path, extension: str) -> None:
+        """Affiche un fichier PNG ou HTML selon son extension."""
+        if not file_path.exists():
+            st.markdown(
+                f"<div style='border:1px dashed #ccc;border-radius:6px;padding:12px;"
+                f"text-align:center;color:#888;font-size:0.85em'>"
+                f"Fichier non trouvé<br><code>{file_path.name}</code></div>",
+                unsafe_allow_html=True,
+            )
+            return
+        if extension == "html":
+            html_content = file_path.read_text(encoding="utf-8", errors="replace")
+            components.html(html_content, height=600, scrolling=True)
         else:
-            onglet = str(row.get("Onglet", "")).strip()
-            base   = f"{canton_excel}_{risque}_{onglet}"
+            st.image(str(file_path), use_container_width=True)
+
+    for _, row in rows.iterrows():
+        titre      = str(row.get("Titre", "")).strip()
+        onglet_val = str(row.get("Onglet", "")).strip()
+        ext        = str(row.get("extension", "png")).strip().lower() or "png"
+        row_canton = str(row.get("CANTON", canton_excel)).strip()
+
+        # Nom de base : priorité Nom_image, sinon reconstruction automatique
+        nom_image = str(row.get("Nom_image", "")).strip() if "Nom_image" in df_params.columns else ""
+        if nom_image:
+            base = _base_name(nom_image)
+        else:
+            base = f"{row_canton}_{risque}_{onglet_val}"
 
         st.markdown(
-            f"<p style='font-weight:600;color:#1a1a2e;margin-bottom:4px'>{titre}</p>",
+            f"<p style='font-weight:600;color:#1a1a2e;margin-bottom:4px'>{titre or base}</p>",
             unsafe_allow_html=True,
         )
 
-        col1, col2 = st.columns(2)
-        for col, date_str in [(col1, date_d0), (col2, date_d1)]:
-            with col:
-                if not date_str:
-                    st.markdown(
-                        "<div style='border:1px dashed #ccc;border-radius:6px;padding:12px;"
-                        "text-align:center;color:#888;font-size:0.85em'>Aucune date disponible</div>",
-                        unsafe_allow_html=True,
-                    )
-                    continue
-                img_path = archives_path / f"{date_str}_{base}.png"
-                if img_path.exists():
-                    st.image(str(img_path), use_container_width=True)
-                else:
-                    st.markdown(
-                        f"<div style='border:1px dashed #ccc;border-radius:6px;padding:12px;"
-                        f"text-align:center;color:#888;font-size:0.85em'>"
-                        f"Image non trouvée<br><code>{date_str}_{base}.png</code></div>",
-                        unsafe_allow_html=True,
-                    )
+        if not date_d1:
+            st.markdown(
+                "<div style='border:1px dashed #ccc;border-radius:6px;padding:12px;"
+                "text-align:center;color:#888;font-size:0.85em'>Aucune date disponible</div>",
+                unsafe_allow_html=True,
+            )
+        else:
+            file_path = archives_path / f"{date_d1}_{base}.{ext}"
+            # Fallback : si l'extension Excel est absente, essayer png puis html
+            if not file_path.exists() and ext == "png":
+                alt = archives_path / f"{date_d1}_{base}.html"
+                if alt.exists():
+                    file_path, ext = alt, "html"
+            elif not file_path.exists() and ext == "html":
+                alt = archives_path / f"{date_d1}_{base}.png"
+                if alt.exists():
+                    file_path, ext = alt, "png"
+            _display_file(file_path, ext)
 
         st.markdown("<hr style='margin:8px 0;border-color:#e0d0f0'>", unsafe_allow_html=True)
