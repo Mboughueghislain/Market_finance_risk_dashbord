@@ -862,6 +862,77 @@ if show_admin:
 excel_tab  = _tabs[_next_idx] if _has_excel_viewer else None
 
 # =========================
+# FRAGMENTS — isolent chaque onglet pour éviter les recalculs croisés
+# Un fragment ne re-exécute que son propre contenu quand un widget interne change.
+# =========================
+
+@st.fragment
+def _frag_portefeuille(df_selection, use_transpa, date_debut, date_fin):
+    render_portefeuille_tab(
+        df_selection=df_selection,
+        use_transpa=use_transpa,
+        date_debut=date_debut,
+        date_fin=date_fin,
+    )
+
+@st.fragment
+def _frag_risque_taux(df_selection, date_debut, date_fin):
+    render_risque_taux_tab(df_selection=df_selection, date_debut=date_debut, date_fin=date_fin)
+
+@st.fragment
+def _frag_risque_spread(df_selection, date_debut, date_fin):
+    render_risque_spread_tab(df_selection=df_selection, date_debut=date_debut, date_fin=date_fin)
+
+@st.fragment
+def _frag_risque_action(df_selection, date_debut, date_fin):
+    render_risque_action_tab(df_selection=df_selection, date_debut=date_debut, date_fin=date_fin)
+
+@st.fragment
+def _frag_risque_immo(df_selection, date_debut, date_fin):
+    render_risque_immo_tab(df_selection=df_selection, date_debut=date_debut, date_fin=date_fin)
+
+@st.fragment
+def _frag_suivi_marche(date_debut, date_fin, sr_picture, sr_archives):
+    st.markdown("#### 📉 Suivi Marché")
+    render_suivi_risques_canton("SDG", "ALL", date_debut, date_fin, sr_picture, sr_archives)
+
+@st.fragment
+def _frag_risque_sdg(date_debut, date_fin, sr_picture, sr_archives, canton):
+    st.markdown("#### 📊 Risque SDG")
+    _valo_subtabs = st.tabs(["📊 Risque SDG", "🔍 Fiabilité de la valorisation"])
+    with _valo_subtabs[0]:
+        render_suivi_risques_canton("VALO", "ALL", date_debut, date_fin, sr_picture, sr_archives,
+                                    selected_cantons=canton)
+    with _valo_subtabs[1]:
+        render_suivi_risques_canton("FIAB_VALO", "ALL", date_debut, date_fin, sr_picture, sr_archives)
+
+@st.fragment
+def _frag_kpi(date_debut, date_fin, sr_picture, sr_archives, canton):
+    st.markdown("#### ⚠️ KPI")
+    _kpi_tabs = st.tabs([
+        "📋 Cotation du risque",
+        "📊 Niveau de risque",
+        "📈 Indicateur de risque",
+        "🏢 Gestion directe",
+        "📖 Définition des indicateurs",
+    ])
+    with _kpi_tabs[0]:
+        render_suivi_risques_canton("DEFAUT", "ALL", date_debut, date_fin, sr_picture, sr_archives,
+                                    onglet_filter="Cotation du risque", selected_cantons=canton)
+    with _kpi_tabs[1]:
+        render_suivi_risques_canton("DEFAUT", "ALL", date_debut, date_fin, sr_picture, sr_archives,
+                                    onglet_filter="Niveau de risque", selected_cantons=canton)
+    with _kpi_tabs[2]:
+        render_suivi_risques_canton("DEFAUT", "ALL", date_debut, date_fin, sr_picture, sr_archives,
+                                    onglet_filter="Indicateur de risque", selected_cantons=canton)
+    with _kpi_tabs[3]:
+        render_suivi_risques_canton("DEFAUT", "ALL", date_debut, date_fin, sr_picture, sr_archives,
+                                    onglet_filter="Gestion directe", selected_cantons=canton)
+    with _kpi_tabs[4]:
+        render_suivi_risques_canton("DEFAUT", "ALL", date_debut, date_fin, sr_picture, sr_archives,
+                                    onglet_filter="Définition des indicateurs", selected_cantons=canton)
+
+# =========================
 # ONGLET : SUIVI DU PORTEFEUILLE
 # =========================
 with suivi_pf_tab:
@@ -885,7 +956,7 @@ with suivi_pf_tab:
 
     # Portefeuille
     with portefeuil_tab:
-        # ── KPI cards ────────────────────────────────────────────────────────
+        # ── KPI cards (légers, pas de fragment nécessaire) ───────────────────
         _df = df_selection.copy()
         _date_col = next((c for c in ["DATE_TRANSPA", "DATE_VALEUR"] if c in _df.columns), None)
         _class_col = next((c for c in ["CLASSIF_RF", "CLASSE_ACTIF"] if c in _df.columns), None)
@@ -993,45 +1064,19 @@ with suivi_pf_tab:
             st.info("Données insuffisantes pour calculer les indicateurs.")
 
         st.markdown("---")
+        _frag_portefeuille(df_selection, use_transpa, date_debut, date_fin)
 
-        render_portefeuille_tab(
-            df_selection=df_selection,
-            use_transpa=use_transpa,
-            date_debut=date_debut,
-            date_fin=date_fin,
-        )
-
-    # Risque Taux
     with risque_taux_tab:
-        render_risque_taux_tab(
-            df_selection=df_selection,
-            date_debut=date_debut,
-            date_fin=date_fin,
-        )
+        _frag_risque_taux(df_selection, date_debut, date_fin)
 
-    # Risque Spread
     with risque_spread_tab:
-        render_risque_spread_tab(
-            df_selection=df_selection,
-            date_debut=date_debut,
-            date_fin=date_fin,
-        )
+        _frag_risque_spread(df_selection, date_debut, date_fin)
 
-    # Risque Action
     with risque_action_tab:
-        render_risque_action_tab(
-            df_selection=df_selection,
-            date_debut=date_debut,
-            date_fin=date_fin,
-        )
+        _frag_risque_action(df_selection, date_debut, date_fin)
 
-    # Risque Immobilier
     with risque_immo_tab:
-        render_risque_immo_tab(
-            df_selection=df_selection,
-            date_debut=date_debut,
-            date_fin=date_fin,
-        )
+        _frag_risque_immo(df_selection, date_debut, date_fin)
 
     # Risque Autre
     #with risque_autre_tab:
@@ -1062,52 +1107,17 @@ with suivi_indic_tab:
         "⚠️ KPI",
     ])
 
-    # Cantons dans l'ordre imposé, filtrés par la sélection du filtre sidebar
-    _ordre_cantons_indic = ["BPCEM AG", "CGP AG", "CGP RS"]
-    _cantons_indic = [c for c in _ordre_cantons_indic if c in canton]
-
     _sr_picture  = _cfg.get("suivi_risques_picture_dir", "")
     _sr_archives = _cfg.get("suivi_risques_archives_dir", "")
 
     with indic_sdg_tab:
-        st.markdown("#### 📉 Suivi Marché")
-        # SDG = données communes (CANTON=ALL dans Excel) → pas de filtre canton
-        render_suivi_risques_canton("SDG", "ALL", date_debut, date_fin, _sr_picture, _sr_archives)
+        _frag_suivi_marche(date_debut, date_fin, _sr_picture, _sr_archives)
 
     with indic_valo_tab:
-        st.markdown("#### 📊 Risque SDG")
-        _valo_subtabs = st.tabs(["📊 Risque SDG", "🔍 Fiabilité de la valorisation"])
-        with _valo_subtabs[0]:
-            render_suivi_risques_canton("VALO", "ALL", date_debut, date_fin, _sr_picture, _sr_archives,
-                                        selected_cantons=canton)
-        with _valo_subtabs[1]:
-            # FIAB_VALO = CANTON=ALL dans Excel → pas de filtre canton
-            render_suivi_risques_canton("FIAB_VALO", "ALL", date_debut, date_fin, _sr_picture, _sr_archives)
+        _frag_risque_sdg(date_debut, date_fin, _sr_picture, _sr_archives, canton)
 
     with indic_defaut_tab:
-        st.markdown("#### ⚠️ KPI")
-        _kpi_tabs = st.tabs([
-            "📋 Cotation du risque",
-            "📊 Niveau de risque",
-            "📈 Indicateur de risque",
-            "🏢 Gestion directe",
-            "📖 Définition des indicateurs",
-        ])
-        with _kpi_tabs[0]:
-            render_suivi_risques_canton("DEFAUT", "ALL", date_debut, date_fin, _sr_picture, _sr_archives,
-                                        onglet_filter="Cotation du risque", selected_cantons=canton)
-        with _kpi_tabs[1]:
-            render_suivi_risques_canton("DEFAUT", "ALL", date_debut, date_fin, _sr_picture, _sr_archives,
-                                        onglet_filter="Niveau de risque", selected_cantons=canton)
-        with _kpi_tabs[2]:
-            render_suivi_risques_canton("DEFAUT", "ALL", date_debut, date_fin, _sr_picture, _sr_archives,
-                                        onglet_filter="Indicateur de risque", selected_cantons=canton)
-        with _kpi_tabs[3]:
-            render_suivi_risques_canton("DEFAUT", "ALL", date_debut, date_fin, _sr_picture, _sr_archives,
-                                        onglet_filter="Gestion directe", selected_cantons=canton)
-        with _kpi_tabs[4]:
-            render_suivi_risques_canton("DEFAUT", "ALL", date_debut, date_fin, _sr_picture, _sr_archives,
-                                        onglet_filter="Définition des indicateurs", selected_cantons=canton)
+        _frag_kpi(date_debut, date_fin, _sr_picture, _sr_archives, canton)
 
 # =========================
 # ONGLET : DATA
