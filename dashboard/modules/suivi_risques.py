@@ -429,7 +429,7 @@ def render_suivi_risques_dynamic(
                 i += 1
             elif i + 1 >= len(small_sorted):
                 # Image seule (non pairée) → centrée à 50%
-                _, col, _ = st.columns([1, 2, 1])
+                _, col, _ = st.columns([3, 14, 3])
                 _render_one(col, str(row["nom_image"]), str(row.get("extension", "png")),
                             str(row.get("titre", "")), perimetre)
                 st.markdown("<hr style='margin:8px 0;border-color:#e0d0f0'>", unsafe_allow_html=True)
