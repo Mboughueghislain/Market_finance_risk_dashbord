@@ -1201,13 +1201,19 @@ def render_risque_action_tab(df_selection: pd.DataFrame, date_debut, date_fin):
             "Impossible de calculer la concentration par secteur.\n\n"
             "Colonnes candidates : SECTEUR_EPS, SECTEUR_ECO, SECTOR, INDUSTRY, NACE"
         )
+        from modules.rapport_export import fig_to_png_bytes_cached
+        _fig_iss = fig_treemap if label_header is not None else None
+        _fig_geo = fig_map if df_aff_geo is not None else None
         st.session_state["rapport_action"] = {
-            "fig_issuer":    fig_treemap if label_header is not None else None,
-            "fig_geo":       fig_map if df_aff_geo is not None else None,
-            "fig_secteur":   None,
-            "table_issuer":  df_aff if label_header is not None else None,
-            "table_geo":     df_aff_geo,
-            "table_secteur": None,
+            "fig_issuer":      _fig_iss,
+            "fig_geo":         _fig_geo,
+            "fig_secteur":     None,
+            "fig_issuer_png":  fig_to_png_bytes_cached(_fig_iss),
+            "fig_geo_png":     fig_to_png_bytes_cached(_fig_geo),
+            "fig_secteur_png": None,
+            "table_issuer":    df_aff if label_header is not None else None,
+            "table_geo":       df_aff_geo,
+            "table_secteur":   None,
         }
         return
 
@@ -1232,11 +1238,17 @@ def render_risque_action_tab(df_selection: pd.DataFrame, date_debut, date_fin):
             st.plotly_chart(fig_treemap_sect, use_container_width=True, config={"displayModeBar": "hover"})
 
     # Stockage pour l'onglet Rapport
+    from modules.rapport_export import fig_to_png_bytes_cached
+    _fig_iss2 = fig_treemap if label_header is not None else None
+    _fig_geo2 = fig_map if df_aff_geo is not None else None
     st.session_state["rapport_action"] = {
-        "fig_issuer":    fig_treemap if label_header is not None else None,
-        "fig_geo":       fig_map if df_aff_geo is not None else None,
-        "fig_secteur":   fig_treemap_sect,
-        "table_issuer":  df_aff if label_header is not None else None,
+        "fig_issuer":      _fig_iss2,
+        "fig_geo":         _fig_geo2,
+        "fig_secteur":     fig_treemap_sect,
+        "fig_issuer_png":  fig_to_png_bytes_cached(_fig_iss2),
+        "fig_geo_png":     fig_to_png_bytes_cached(_fig_geo2),
+        "fig_secteur_png": fig_to_png_bytes_cached(fig_treemap_sect),
+        "table_issuer":    df_aff if label_header is not None else None,
         "table_geo":     df_aff_geo,
         "table_secteur": df_aff_sect,
     }

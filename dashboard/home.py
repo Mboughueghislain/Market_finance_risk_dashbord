@@ -16,6 +16,7 @@ from app_config import (  # type: ignore
 )
 
 import streamlit_authenticator as stauth
+import streamlit.components.v1 as _st_comp
 
 from modules.tableau_data import tableau_data
 from modules.portefeuille import render_portefeuille_tab
@@ -310,9 +311,17 @@ _authenticator = stauth.Authenticate(
     auto_hash=False,   # hashes déjà en bcrypt
 )
 
+# Détecte la transition authentifié → non-authentifié (déconnexion)
+# pour forcer un rechargement navigateur et nettoyer les fragments périmés.
+_was_auth = st.session_state.pop("_was_authenticated", False)
+
 _already_auth = st.session_state.get("authentication_status") is True
 
 if not _already_auth:
+    if _was_auth:
+        # L'utilisateur vient de se déconnecter : recharger la page pour vider le DOM des fragments.
+        _st_comp.html("<script>window.parent.location.reload(true);</script>", height=0)
+        st.stop()
     # CSS uniquement pour la page de login (fond sombre + formulaire thème violet)
     st.markdown(
         """
@@ -331,16 +340,16 @@ if not _already_auth:
         [data-testid="stForm"] label {
             color: rgba(255,255,255,0.9) !important; font-weight: 600 !important;
         }
-        /* Conteneur champ (deux sélecteurs pour compatibilité) */
-        [data-testid="stForm"] [data-baseweb="input"],
-        [data-testid="stForm"] .stTextInput > div > div {
+        /* Conteneur champ réel (BaseUI) — unique porteur de la bordure */
+        [data-testid="stForm"] [data-baseweb="input"] {
             background-color: rgba(255,255,255,0.15) !important;
             border: 1px solid rgba(255,255,255,0.35) !important;
             border-radius: 8px !important;
             box-shadow: none !important;
         }
-        /* Wrapper intermédiaire — pas de bordure en double */
-        [data-testid="stForm"] .stTextInput > div {
+        /* Wrappers intermédiaires — neutralisés pour éviter la double bordure */
+        [data-testid="stForm"] .stTextInput > div,
+        [data-testid="stForm"] .stTextInput > div > div {
             background-color: transparent !important;
             border: none !important;
             box-shadow: none !important;
@@ -367,9 +376,8 @@ if not _already_auth:
             color: rgba(255,255,255,0.45) !important;
             -webkit-text-fill-color: rgba(255,255,255,0.45) !important;
         }
-        /* Focus */
-        [data-testid="stForm"] [data-baseweb="input"]:focus-within,
-        [data-testid="stForm"] .stTextInput > div > div:focus-within {
+        /* Focus — uniquement sur le conteneur BaseUI */
+        [data-testid="stForm"] [data-baseweb="input"]:focus-within {
             border-color: rgba(255,255,255,0.7) !important;
             box-shadow: 0 0 0 2px rgba(255,255,255,0.12) !important;
         }
@@ -429,6 +437,16 @@ if _auth_status is False:
     st.error("Identifiant ou mot de passe incorrect.")
     st.stop()
 elif _auth_status is None:
+    st.stop()
+
+# Marque la session comme authentifiée pour détecter une future déconnexion.
+st.session_state["_was_authenticated"] = True
+
+# Si l'utilisateur vient de se connecter depuis la page de login (même rerun),
+# le formulaire de login ET le dashboard se rendraient simultanément → fond violet + dashboard superposés.
+# On force un rechargement propre ; le cookie est déjà posé, la session reprend sans re-saisir le mot de passe.
+if not _already_auth:
+    _st_comp.html("<script>window.parent.location.reload(true);</script>", height=0)
     st.stop()
 
 # ── Utilisateur connecté : restaurer le fond et les formulaires du dashboard ──

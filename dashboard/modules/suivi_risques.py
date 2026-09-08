@@ -249,17 +249,77 @@ def render_suivi_risques_canton(
 
     # ── Diagnostic ────────────────────────────────────────────────────────────
     with st.expander("🔍 Diagnostic", expanded=not excel_ok or not archives_ok):
-        st.markdown(f"**Excel** : {'✅ chargé' if excel_ok else '❌ ' + load_error}")
-        if excel_ok:
-            canton_excel_diag = CANTON_DISPLAY_TO_EXCEL.get(canton_display, canton_display.replace(" ", "_").upper())
-            mask_diag = (df_params["RISQUE"] == risque) & (df_params["CANTON"].isin([canton_excel_diag, "ALL"]))
-            st.markdown(f"**Lignes dans l'Excel** : {len(df_params)}")
-            st.markdown(f"**Graphiques filtrés ({risque}/{canton_display})** : {mask_diag.sum()}")
-        archives_msg = f"✅ {len(available_dates)} dates disponibles" if archives_ok else f"❌ aucune image PNG trouvée dans : {archives_dir}"
-        st.markdown(f"**Répertoire ARCHIVES** : {archives_msg}")
-        if available_dates:
-            st.markdown(f"**Dates disponibles** : {', '.join(available_dates[-5:])}" + (" ..." if len(available_dates) > 5 else ""))
-        st.markdown(f"**Date fin** → `{_fmt(date_d1)}`")
+
+        # — Sources —
+        st.markdown("**Sources**")
+        c1, c2 = st.columns(2)
+        with c1:
+            if excel_ok:
+                st.success(f"Excel ✅ — {len(df_params)} ligne(s) au total")
+            else:
+                st.error(f"Excel ❌ — {load_error}")
+            st.caption(f"Chemin : `{picture_dir}`")
+        with c2:
+            if archives_ok:
+                st.success(f"ARCHIVES ✅ — {len(available_dates)} date(s) disponible(s)")
+            else:
+                st.error(f"ARCHIVES ❌ — aucun fichier trouvé")
+            st.caption(f"Chemin : `{archives_dir}`")
+            if available_dates:
+                st.caption(f"Dernières dates : {', '.join(available_dates[-3:])}")
+
+        st.markdown("---")
+
+        # — Filtre actif —
+        st.markdown("**Filtre actif**")
+        _allowed_diag = (
+            ["ALL"] + [CANTON_DISPLAY_TO_EXCEL.get(c, c.replace(" ", "_").upper()) for c in selected_cantons]
+            if selected_cantons else ["(tous)"]
+        )
+        col_a, col_b, col_c, col_d = st.columns(4)
+        col_a.metric("RISQUE", risque)
+        col_b.metric("Canton(s)", ", ".join(_allowed_diag))
+        col_c.metric("Onglet filtre", onglet_filter or "—")
+        col_d.metric("Date fin retenue", _fmt(date_d1))
+
+        st.markdown("---")
+
+        # — Fichiers attendus —
+        if excel_ok and archives_ok and date_d1:
+            st.markdown("**Fichiers attendus**")
+            _canton_excel_diag = CANTON_DISPLAY_TO_EXCEL.get(canton_display, canton_display.replace(" ", "_").upper())
+            _mask_diag = df_params["RISQUE"] == risque
+            if selected_cantons:
+                _mask_diag = _mask_diag & df_params["CANTON"].isin(_allowed_diag)
+            if onglet_filter and "Onglet" in df_params.columns:
+                _mask_diag = _mask_diag & (df_params["Onglet"].astype(str).str.strip() == onglet_filter)
+            _rows_diag = df_params[_mask_diag].sort_values(["CANTON", "Ordre"])
+
+            if _rows_diag.empty:
+                st.warning("Aucune ligne trouvée dans l'Excel pour ce filtre.")
+            else:
+                _ap = _resolve_path(archives_dir)
+                _diag_rows = []
+                for _, r in _rows_diag.iterrows():
+                    _nm  = str(r.get("Nom_image", "")).strip() if "Nom_image" in df_params.columns else ""
+                    _ov  = str(r.get("Onglet", "")).strip()
+                    _rc  = str(r.get("CANTON", "")).strip()
+                    _ext = str(r.get("extension", "png")).strip().lower() or "png"
+                    _base = _base_name(_nm) if _nm else f"{_rc}_{risque}_{_ov}"
+                    _fname = f"{date_d1}_{_base}.{_ext}"
+                    _exists = (_ap / _fname).exists()
+                    _diag_rows.append({
+                        "Titre": str(r.get("Titre", "")).strip() or _base,
+                        "Canton": _rc,
+                        "Fichier attendu": _fname,
+                        "Statut": "✅" if _exists else "❌",
+                    })
+                import pandas as _pd_diag
+                st.dataframe(
+                    _pd_diag.DataFrame(_diag_rows),
+                    use_container_width=True,
+                    hide_index=True,
+                )
 
     if not excel_ok:
         st.error(f"Impossible de charger le fichier Excel. Vérifiez le chemin PICTURE dans les paramètres admin.")

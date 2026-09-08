@@ -1,12 +1,21 @@
-# modules/rapport_pdf_v2.py
+# dashboard/modules/rapport_pdf_V2.py
+"""
+Rapport PDF — mêmes sections que l'original, avec logo + sommaire.
+
+Corrections :
+- section_header suit directement la première sous-section (pas de page vide)
+- colonnes proportionnelles + Paragraph pour éviter les débordements de texte
+- fallback kaleido à la volée si les bytes PNG pre-calculés sont None
+"""
 
 import io
-import re
+from pathlib import Path
 from typing import List, Dict, Optional
 
 import pandas as pd
+import plotly.io as pio
 
-from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import cm
 from reportlab.lib import colors
@@ -19,404 +28,425 @@ from reportlab.platypus import (
     TableStyle,
     Image,
     PageBreak,
-    Flowable,
     HRFlowable,
+    Flowable,
 )
 
-# On réutilise ton formatage existant
-from modules.rapport_export import _format_df_for_export, _truncate_with_total
+from modules.rapport_export import (
+    _format_df_for_export,
+    _truncate_with_total,
+    _add_placeholder_capture,
+    MAIN_PURPLE_HEX,
+    TREND_UP_HEX,
+    TREND_DOWN_HEX,
+    TREND_STABLE_HEX,
+)
 
-# Enregistrement de DejaVu Sans pour le support des symboles Unicode (▲▼◆)
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
+# ── Palette ────────────────────────────────────────────────────────────────
+_PURPLE     = colors.HexColor(MAIN_PURPLE_HEX)
+_PURPLE_LT  = colors.HexColor("#e8d8f0")
+_PURPLE_MID = colors.HexColor("#c4a8d4")
+_GREY       = colors.HexColor("#555555")
+_GREY_BG    = colors.HexColor("#f7f4fa")
 
-import platform as _platform
-from pathlib import Path as _Path
-
-def _find_font(linux_path: str, win_name: str) -> str:
-    if _platform.system() == "Windows":
-        p = _Path(r"C:\Windows\Fonts") / win_name
-        return str(p) if p.exists() else linux_path
-    return linux_path
-
-_DEJAVU_PATH      = _find_font("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",      "DejaVuSans.ttf")
-_DEJAVU_BOLD_PATH = _find_font("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", "DejaVuSans-Bold.ttf")
-try:
-    pdfmetrics.registerFont(TTFont("DejaVuSans", _DEJAVU_PATH))
-    pdfmetrics.registerFont(TTFont("DejaVuSans-Bold", _DEJAVU_BOLD_PATH))
-    _TABLE_FONT = "DejaVuSans"
-    _TABLE_FONT_BOLD = "DejaVuSans-Bold"
-except Exception:
-    _TABLE_FONT = "Helvetica"
-    _TABLE_FONT_BOLD = "Helvetica-Bold"
-
-# ====== PALETTE GLOBALE ======
-MAIN_PURPLE_HEX = "#714A80"
-TREND_UP_HEX = "#2ca02c"      # vert  (identique format_utils.py)
-TREND_DOWN_HEX = "#d62728"    # rouge (identique format_utils.py)
-TREND_STABLE_HEX = "#bcbd22"  # jaune (identique format_utils.py)
-
-# Nombre max de lignes par tableau (après troncature)
-MAX_TABLE_ROWS = 12
+_LOGO = Path(__file__).resolve().parent.parent.parent / "data" / "logo" / "logoeps.png"
 
 
-# ----------------------------------------------------------
-#  Champ de texte éditable (AcroForm) pour les commentaires
-# ----------------------------------------------------------
-class AnalyseTextField(Flowable):
+# ── Styles ─────────────────────────────────────────────────────────────────
+def _make_styles():
+    s = getSampleStyleSheet()
+    def add(name, **kw):
+        if name not in s:
+            s.add(ParagraphStyle(name=name, **kw))
+    add("CenterTitle",  parent=s["Title"],    alignment=TA_CENTER)
+    add("CenterH2",     parent=s["Heading2"], alignment=TA_CENTER)
+    add("CenterNormal", parent=s["Normal"],   alignment=TA_CENTER)
+    add("TocH",
+        fontName="Helvetica-Bold", fontSize=10.5, leading=15,
+        textColor=colors.HexColor("#4a2d5a"), spaceBefore=4, spaceAfter=2)
+    add("TocS",
+        fontName="Helvetica", fontSize=9.5, leading=14,
+        textColor=_GREY, leftIndent=20, spaceAfter=1)
+    add("SectionTitle",
+        fontName="Helvetica-Bold", fontSize=12, leading=16,
+        textColor=colors.HexColor("#4a2d5a"), spaceBefore=4, spaceAfter=2)
+    add("SubTitle",
+        fontName="Helvetica-Bold", fontSize=10, leading=14,
+        textColor=_PURPLE, leftIndent=8, spaceBefore=4, spaceAfter=2)
+    # Styles pour cellules de tableau
+    add("TH",
+        fontName="Helvetica-Bold", fontSize=7, leading=9,
+        textColor=colors.white, alignment=TA_CENTER)
+    add("TD",
+        fontName="Helvetica", fontSize=7, leading=9,
+        textColor=colors.HexColor("#1a1a2e"))
+    add("TD_TOT",
+        fontName="Helvetica-Bold", fontSize=7, leading=9,
+        textColor=colors.white, alignment=TA_CENTER)
+    return s
+
+
+# ── Page de garde ──────────────────────────────────────────────────────────
+def _cover_story(periode_label: str, styles) -> list:
+    story = []
+
+    if _LOGO.exists():
+        logo_w = 7 * cm
+        logo_h = logo_w * (105 / 480)
+        img = Image(str(_LOGO), width=logo_w, height=logo_h)
+        img.hAlign = "CENTER"
+        story.append(Spacer(1, 1.5 * cm))
+        story.append(img)
+        story.append(Spacer(1, 0.6 * cm))
+    else:
+        story.append(Spacer(1, 2.5 * cm))
+
+    story.append(HRFlowable(width="70%", thickness=2.5, color=_PURPLE,
+                            spaceBefore=0, spaceAfter=0.4 * cm, hAlign="CENTER"))
+    story.append(Paragraph("<b>Rapport commenté<br/>Risques financiers</b>",
+                           styles["CenterTitle"]))
+    story.append(Spacer(1, 0.4 * cm))
+
+    # Encadré période
+    pt = Table([[f"Période : {periode_label}"]], colWidths=[12 * cm], hAlign="CENTER")
+    pt.setStyle(TableStyle([
+        ("BACKGROUND",    (0, 0), (-1, -1), _PURPLE_LT),
+        ("BOX",           (0, 0), (-1, -1), 1.0, _PURPLE),
+        ("ALIGN",         (0, 0), (-1, -1), "CENTER"),
+        ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
+        ("FONTNAME",      (0, 0), (-1, -1), "Helvetica-Bold"),
+        ("FONTSIZE",      (0, 0), (-1, -1), 11),
+        ("TEXTCOLOR",     (0, 0), (-1, -1), colors.HexColor("#4a2d5a")),
+        ("TOPPADDING",    (0, 0), (-1, -1), 8),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+    ]))
+    story.append(pt)
+    story.append(Spacer(1, 1.0 * cm))
+
+    story.append(HRFlowable(width="70%", thickness=2.5, color=_PURPLE,
+                            spaceBefore=0, spaceAfter=0.4 * cm, hAlign="CENTER"))
+    story.append(Paragraph(
+        "<font color='#714A80' size='9'>"
+        "<i>Document confidentiel — usage interne strictement réservé</i>"
+        "</font>",
+        styles["CenterNormal"],
+    ))
+    story.append(PageBreak())
+    return story
+
+
+# ── Sommaire ───────────────────────────────────────────────────────────────
+def _toc_story(sections: list, styles) -> list:
+    import re
+    story = []
+    story.append(Paragraph("<b>Sommaire</b>", styles["CenterTitle"]))
+    story.append(HRFlowable(width="100%", thickness=2, color=_PURPLE,
+                            spaceBefore=0.1 * cm, spaceAfter=0.3 * cm))
+    for sec in sections:
+        if sec.get("is_section_header"):
+            story.append(Spacer(1, 0.2 * cm))
+            story.append(Paragraph(sec.get("title", ""), styles["TocH"]))
+        else:
+            title = sec.get("title", "")
+            is_sub = bool(re.match(r"^\d+\.\d+", title))
+            if is_sub:
+                story.append(Paragraph(f"    ◦  {title}", styles["TocS"]))
+            else:
+                story.append(Spacer(1, 0.1 * cm))
+                story.append(Paragraph(f"  ●  {title}", styles["TocH"]))
+    story.append(PageBreak())
+    return story
+
+
+# ── Largeurs de colonnes intelligentes ────────────────────────────────────
+def _smart_col_widths(columns, total_w: float = 17 * cm) -> list:
+    """Largeurs proportionnelles selon le type de colonne."""
+    weights = []
+    for col in columns:
+        c = str(col).lower()
+        if any(x in c for x in ["titre", "libellé", "libelle", "classe",
+                                  "segment", "groupe", "emetteur", "secteur",
+                                  "pays", "type", "duration"]):
+            weights.append(3.8)
+        elif "tendance" in c:
+            weights.append(1.8)
+        elif any(x in c for x in ["(%)", "alloc", "poids"]):
+            weights.append(1.5)
+        elif any(x in c for x in ["m€", "vm", "valeur"]):
+            weights.append(2.0)
+        elif "bp" in c or "spread" in c:
+            weights.append(1.5)
+        else:
+            weights.append(2.0)
+    total = sum(weights)
+    return [w * total_w / total for w in weights]
+
+
+# ── Grand espace graphique (à remplir manuellement) ───────────────────────
+_GRAPH_H        = 8.0 * cm    # hauteur d'un graphique rendu
+_GRAPH_H2       = 6.0 * cm    # hauteur quand 2 graphiques empilés
+_PLACEHOLDER_H  = 10.5 * cm   # boîte vide (espace pour coller un screenshot)
+
+
+def _graph_placeholder(story: list):
+    """Boîte vide de secours — grand espace pour coller un screenshot."""
+    tbl = Table(
+        [[""]],
+        colWidths=[17 * cm],
+        rowHeights=[_PLACEHOLDER_H],
+        hAlign="CENTER",
+    )
+    tbl.setStyle(TableStyle([
+        ("BOX",        (0, 0), (-1, -1), 0.8, _PURPLE_MID),
+        ("BACKGROUND", (0, 0), (-1, -1), _GREY_BG),
+    ]))
+    story.append(tbl)
+    story.append(Spacer(1, 0.3 * cm))
+
+
+def _render_figures(sec: dict, story: list):
     """
-    Flowable qui rend un champ de texte éditable (formulaire PDF/AcroForm).
-    Utilise relative=True pour se positionner à l'endroit où Platypus le place.
-    Si 'value' est fourni (commentaire Streamlit), le champ est pré-rempli.
-    Sinon, il reste vide et modifiable directement dans le lecteur PDF.
+    Rend les graphiques de la section dans le PDF.
+    Priorité : bytes PNG pré-calculés (figures_png).
+    Fallback  : rendu kaleido à la volée (figures_obj).
+    Si aucun graphique disponible, affiche une boîte vide.
     """
+    figs_png = [b for b in (sec.get("figures_png") or []) if b]
+    figs_obj = sec.get("figures_obj") or []
+    n = max(len(sec.get("figures_png") or []), len(figs_obj))
+    img_h = _GRAPH_H if n <= 1 else _GRAPH_H2
 
-    def __init__(
-        self,
-        field_name: str,
-        value: str = "",
-        width: float = 17 * cm,
-        height: float = 4.0 * cm,
-    ):
-        Flowable.__init__(self)
-        self.field_name = field_name
-        self.value = value
-        self.width = width
-        self.height = height
+    rendered = False
+    raw_pngs = list(sec.get("figures_png") or [])
+
+    for i in range(n):
+        png = raw_pngs[i] if i < len(raw_pngs) else None
+        obj = figs_obj[i] if i < len(figs_obj) else None
+
+        if not png and obj is not None:
+            try:
+                obj.update_layout(paper_bgcolor="white", plot_bgcolor="white",
+                                  font_color="#333333")
+                png = pio.to_image(obj, format="png", width=1100, height=450, scale=1.5)
+            except Exception as e:
+                print(f"[rapport_pdf_V2] kaleido fig {i}: {e}")
+
+        if png:
+            img = Image(io.BytesIO(png), width=17 * cm, height=img_h)
+            img.hAlign = "CENTER"
+            story.append(img)
+            story.append(Spacer(1, 0.15 * cm))
+            rendered = True
+
+    if not rendered:
+        _graph_placeholder(story)
+    else:
+        story.append(Spacer(1, 0.15 * cm))
+
+
+# ── Zone de commentaire éditable (AcroForm TextField) ─────────────────────
+class _EditableComment(Flowable):
+    """
+    Champ texte PDF éditable.
+    Le nom du champ est sanitisé en ASCII pour éviter les crashs ReportLab.
+    """
+    WIDTH  = 17 * cm
+    HEIGHT = 3.0 * cm
+
+    def __init__(self, field_name: str, value: str = ""):
+        super().__init__()
+        import re as _re
+        # Nom ASCII uniquement, sans espaces ni caractères spéciaux
+        self._name  = _re.sub(r"[^A-Za-z0-9_]", "_", field_name)[:60]
+        # Valeur initiale : on remplace les caractères non-Latin-1 courants
+        self._value = (
+            str(value)
+            .replace("€", "EUR").replace("→", "->").replace("–", "-")
+            .replace("▲", "^").replace("▼", "v").replace("◆", "*")
+        )
+        self.width  = self.WIDTH
+        self.height = self.HEIGHT
 
     def wrap(self, availWidth, availHeight):
-        self.width = min(self.width, availWidth)
         return self.width, self.height
 
     def draw(self):
-        # Calcul des coordonnées absolues sur la page
-        # (absolutePosition convertit (0,0) = bas-gauche du flowable en coordonnées PDF)
-        x_abs, y_abs = self.canv.absolutePosition(0, 0)
-        self.canv.acroForm.textfield(
-            name=self.field_name,
-            tooltip="Entrez votre commentaire ici",
-            value=self.value,
-            x=x_abs,
-            y=y_abs,
-            width=self.width,
-            height=self.height,
-            relative=False,
-            fieldFlags="multiline",
-            maxlen=0,           # 0 = pas de limite de caractères
-            borderWidth=0.5,
-            borderColor=colors.HexColor(MAIN_PURPLE_HEX),
-            fontSize=10,
+        c = self.canv
+        c.saveState()
+
+        # Fond + bordure
+        c.setFillColor(_GREY_BG)
+        c.setStrokeColor(_PURPLE_MID)
+        c.setLineWidth(0.8)
+        c.rect(0, 0, self.width, self.height, fill=1, stroke=1)
+
+        # Champ texte AcroForm pré-rempli et éditable
+        c.acroForm.textfield(
+            name=self._name,
+            value=self._value,
+            tooltip="Cliquer pour saisir / modifier le commentaire",
+            x=3, y=3,
+            width=self.width - 6,
+            height=self.height - 6,
+            borderStyle="inset",
+            borderWidth=0,
+            fillColor=_GREY_BG,
             textColor=colors.black,
-            fillColor=colors.HexColor("#F8F4FC"),
+            fontSize=9,
+            fieldFlags="multiline",
+            relative=True,
+            forceBorder=False,
         )
+        c.restoreState()
 
 
-# ----------------------------------------------------------
-#  Boîte placeholder quand il n'y a pas d'image PNG
-# ----------------------------------------------------------
-def _placeholder_box(
-    label: str = "Capture d’écran / visuel à insérer",
-    width_cm: float = 17.0,
-    height_cm: float = 7.0,
-) -> Table:
-    data = [[label]]
-    t = Table(
-        data,
-        colWidths=[width_cm * cm],
-        rowHeights=[height_cm * cm],
-        hAlign="CENTER",
+# ── Rendu du tableau ───────────────────────────────────────────────────────
+def _render_table(df_export: Optional[pd.DataFrame], story: list, styles):
+    if df_export is None or df_export.empty:
+        return
+
+    col_widths = _smart_col_widths(df_export.columns)
+
+    # En-tête avec Paragraph (retour à la ligne automatique)
+    data = [[Paragraph(str(c), styles["TH"]) for c in df_export.columns]]
+
+    # Colonne Tendance
+    trend_col = next(
+        (j for j, c in enumerate(df_export.columns) if "TENDANCE" in str(c).upper()), None
     )
-    t.setStyle(
-        TableStyle(
-            [
-                ("BOX", (0, 0), (-1, -1), 1, colors.grey),
-                ("INNERGRID", (0, 0), (-1, -1), 0.5, colors.grey),
-                ("BACKGROUND", (0, 0), (-1, -1), colors.whitesmoke),
-                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                ("FONTSIZE", (0, 0), (-1, -1), 9),
-                ("TEXTCOLOR", (0, 0), (-1, -1), colors.HexColor("#666666")),
+
+    def _trend_style(txt):
+        t = str(txt).upper()
+        if "HAUSSE" in t:  return colors.HexColor(TREND_UP_HEX)
+        if "BAISSE" in t:  return colors.HexColor(TREND_DOWN_HEX)
+        if "STABLE" in t:  return colors.HexColor(TREND_STABLE_HEX)
+        return None
+
+    base_style = [
+        ("BACKGROUND",    (0, 0), (-1, 0),  _PURPLE),
+        ("ALIGN",         (0, 0), (-1, 0),  "CENTER"),
+        ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
+        ("GRID",          (0, 0), (-1, -1), 0.25, colors.grey),
+        ("TOPPADDING",    (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ("ROWBACKGROUNDS",(0, 1), (-1, -1), [colors.white, _GREY_BG]),
+    ]
+
+    for ri, row_vals in enumerate(df_export.astype(str).values.tolist(), start=1):
+        is_total = any(v.strip().upper() == "TOTAL" for v in row_vals)
+        sty = styles["TD_TOT"] if is_total else styles["TD"]
+        cells = []
+        for ci, val in enumerate(row_vals):
+            sv = str(val)
+            if not is_total and trend_col is not None and ci == trend_col:
+                tc = _trend_style(sv)
+                if tc:
+                    ps = ParagraphStyle(f"Tr{ri}", fontName="Helvetica",
+                                       fontSize=7, leading=9, textColor=tc)
+                    cells.append(Paragraph(sv, ps))
+                    continue
+            cells.append(Paragraph(sv, sty))
+        data.append(cells)
+        if is_total:
+            base_style += [
+                ("BACKGROUND", (0, ri), (-1, ri), _PURPLE),
+                ("TEXTCOLOR",  (0, ri), (-1, ri), colors.white),
             ]
-        )
-    )
-    return t
+
+    tbl = Table(data, colWidths=col_widths, hAlign="CENTER", repeatRows=1)
+    tbl.setStyle(TableStyle(base_style))
+    story.append(tbl)
+    story.append(Spacer(1, 0.4 * cm))
 
 
-# ----------------------------------------------------------
-#  Builder PDF v2
-# ----------------------------------------------------------
-def build_full_pdf_report_v2(sections: List[Dict], periode_label: str) -> bytes:
-    """
-    Génère un PDF à partir d'une liste de sections NORMALISÉES.
+# ══════════════════════════════════════════════════════════════════════════
+#  BUILDER PRINCIPAL
+# ══════════════════════════════════════════════════════════════════════════
+def build_full_pdf_report_v2(
+    sections: List[Dict],
+    periode_label: str,
+    logo_path: Optional[str] = None,
+) -> bytes:
+    import re
+    styles = _make_styles()
 
-    Chaque section est un dict avec au moins :
-      - "title": str
-      - "subtitle": str (peut être "")
-      - "table": pd.DataFrame ou None
-      - "figures_png": List[bytes] (optionnel, peut être vide)
-      - "comment": str (optionnel)
-
-    IMPORTANT : ce builder n'appelle JAMAIS Plotly / Kaleido.
-    Il utilise UNIQUEMENT les PNG déjà générés côté Streamlit.
-    """
+    # Pré-traitement des tableaux
+    prepared: List[Dict] = []
+    for sec in sections:
+        df = sec.get("table")
+        df_export = None
+        if df is not None and hasattr(df, "empty") and not df.empty:
+            df_export = _format_df_for_export(_truncate_with_total(df, max_rows=12))
+        prepared.append({**sec, "_df": df_export})
 
     buffer = io.BytesIO()
-
-    # Numéros de page dans le pied de page
-    def _add_page_number(canvas, doc):
-        canvas.saveState()
-        canvas.setFont(_TABLE_FONT, 8)
-        canvas.setFillColor(colors.HexColor("#888888"))
-        page_num = canvas.getPageNumber()
-        canvas.drawRightString(
-            A4[0] - 1.5 * cm, 0.8 * cm, f"Page {page_num}"
-        )
-        canvas.drawString(
-            1.5 * cm, 0.8 * cm, "Rapport Risques Financiers — Confidentiel"
-        )
-        canvas.restoreState()
-
     doc = SimpleDocTemplate(
-        buffer,
-        pagesize=A4,
-        topMargin=1.5 * cm,
-        bottomMargin=2.0 * cm,
-        leftMargin=1.5 * cm,
-        rightMargin=1.5 * cm,
+        buffer, pagesize=A4,
+        topMargin=1.5 * cm, bottomMargin=1.5 * cm,
+        leftMargin=1.5 * cm, rightMargin=1.5 * cm,
     )
 
-    styles = getSampleStyleSheet()
-    styles.add(ParagraphStyle(
-        name="CoverTitle",
-        fontName=_TABLE_FONT_BOLD,
-        fontSize=22,
-        leading=28,
-        alignment=TA_CENTER,
-        textColor=colors.HexColor(MAIN_PURPLE_HEX),
-        spaceAfter=0.4 * cm,
-    ))
-    styles.add(ParagraphStyle(
-        name="CoverSubtitle",
-        fontName=_TABLE_FONT,
-        fontSize=13,
-        leading=18,
-        alignment=TA_CENTER,
-        textColor=colors.HexColor("#555555"),
-    ))
-    styles.add(ParagraphStyle(
-        name="SectionTitle",
-        fontName=_TABLE_FONT_BOLD,
-        fontSize=14,
-        leading=18,
-        alignment=TA_LEFT,
-        textColor=colors.HexColor(MAIN_PURPLE_HEX),
-        spaceAfter=0.15 * cm,
-        spaceBefore=0.1 * cm,
-    ))
-    styles.add(ParagraphStyle(
-        name="SubSectionTitle",
-        fontName=_TABLE_FONT_BOLD,
-        fontSize=11,
-        leading=14,
-        alignment=TA_LEFT,
-        textColor=colors.HexColor("#4a2d5a"),
-        spaceAfter=0.1 * cm,
-        leftIndent=0.3 * cm,
-    ))
-    styles.add(ParagraphStyle(
-        name="PeriodLabel",
-        fontName=_TABLE_FONT,
-        fontSize=9,
-        leading=12,
-        alignment=TA_LEFT,
-        textColor=colors.HexColor("#666666"),
-        spaceAfter=0.3 * cm,
-    ))
+    story: list = []
+    story += _cover_story(periode_label, styles)
+    story += _toc_story(sections, styles)
 
-    story = []
+    first_content = True
+    last_was_header = False  # évite la page vide après is_section_header
 
-    # ==========================
-    # 1. Page de garde
-    # ==========================
-    story.append(Spacer(1, 3 * cm))
-    story.append(HRFlowable(
-        width="100%", thickness=3, color=colors.HexColor(MAIN_PURPLE_HEX), spaceAfter=0.6 * cm
-    ))
-    story.append(Paragraph("Rapport commenté", styles["CoverTitle"]))
-    story.append(Paragraph("Risques Financiers", styles["CoverTitle"]))
-    story.append(Spacer(1, 0.4 * cm))
-    story.append(HRFlowable(
-        width="100%", thickness=1, color=colors.HexColor(MAIN_PURPLE_HEX), spaceAfter=0.6 * cm
-    ))
-    story.append(Paragraph(f"Période d'analyse : {periode_label}", styles["CoverSubtitle"]))
-    story.append(Spacer(1, 0.5 * cm))
-    story.append(Paragraph("Document confidentiel", styles["CoverSubtitle"]))
+    for sec in prepared:
 
-    # ==========================
-    # 2. Sections
-    # ==========================
-    story.append(PageBreak())
-    for idx, sec in enumerate(sections):
-
-        # --- Séparateur de section principale (## dans rapport.py) — sans PageBreak ---
+        # ── En-tête de chapitre ─────────────────────────────────────────
         if sec.get("is_section_header"):
-            story.append(Spacer(1, 0.6 * cm))
-            story.append(HRFlowable(
-                width="100%", thickness=3, color=colors.HexColor(MAIN_PURPLE_HEX), spaceAfter=0.3 * cm
-            ))
-            story.append(Paragraph(sec.get("title", ""), styles["SectionTitle"]))
-            story.append(HRFlowable(
-                width="100%", thickness=1, color=colors.HexColor(MAIN_PURPLE_HEX), spaceAfter=0.2 * cm
-            ))
+            if not first_content:
+                story.append(PageBreak())
+            first_content = False
+            last_was_header = True
+            story.append(Paragraph(f"<b>{sec.get('title', '')}</b>",
+                                   styles["SectionTitle"]))
+            story.append(HRFlowable(width="100%", thickness=2, color=_PURPLE,
+                                    spaceBefore=0, spaceAfter=0.25 * cm))
             continue
 
-        title    = sec.get("title", "")
-        subtitle = sec.get("subtitle", "")
-        comment  = sec.get("comment", "")
-        figures_png: Optional[List[bytes]] = sec.get("figures_png") or []
+        # ── Section de contenu ──────────────────────────────────────────
+        # Pas de PageBreak si on suit directement un en-tête de chapitre
+        if not first_content and not last_was_header:
+            story.append(PageBreak())
+        first_content = False
+        last_was_header = False
 
-        # --- En-tête de section : main (X.) vs sous-section (X.Y) ---
-        is_subsection = bool(re.match(r"^\d+\.\d+", title))
-        if is_subsection:
-            story.append(Paragraph(title, styles["SubSectionTitle"]))
-            story.append(HRFlowable(
-                width="100%", thickness=0.8,
-                color=colors.HexColor("#c4a8d4"), spaceAfter=0.1 * cm
-            ))
+        title     = sec.get("title", "")
+        subtitle  = sec.get("subtitle", "") or ""
+        comment   = sec.get("comment", "") or ""
+        df_export = sec.get("_df")
+
+        is_sub = bool(re.match(r"^\d+\.\d+", title))
+        if is_sub:
+            story.append(Paragraph(f"<b>{title}</b>", styles["SubTitle"]))
+            story.append(HRFlowable(width="100%", thickness=0.8, color=_PURPLE_MID,
+                                    spaceBefore=0, spaceAfter=0.12 * cm))
         else:
-            story.append(Paragraph(title, styles["SectionTitle"]))
-            story.append(HRFlowable(
-                width="100%", thickness=2,
-                color=colors.HexColor(MAIN_PURPLE_HEX), spaceAfter=0.1 * cm
-            ))
-        periode_txt = f"{subtitle} — {periode_label}" if subtitle else periode_label
-        story.append(Paragraph(periode_txt, styles["PeriodLabel"]))
+            story.append(Paragraph(f"<b>{title}</b>", styles["CenterH2"]))
+            story.append(HRFlowable(width="100%", thickness=1.5, color=_PURPLE,
+                                    spaceBefore=0, spaceAfter=0.12 * cm))
 
-        # --- Bloc image(s) ou placeholder ---
-        figures_png = [b for b in figures_png if b is not None]
+        if subtitle:
+            story.append(Paragraph(f"{subtitle} – {periode_label}",
+                                   styles["CenterNormal"]))
+            story.append(Spacer(1, 0.2 * cm))
 
-        if len(figures_png) == 1:
-            img = Image(io.BytesIO(figures_png[0]))
-            img._restrictSize(17 * cm, 13 * cm)
-            story.append(img)
-            story.append(Spacer(1, 0.3 * cm))
+        # Graphiques de la section (bytes PNG ou rendu kaleido en fallback)
+        _render_figures(sec, story)
 
-        elif len(figures_png) >= 2:
-            max_h = 8 * cm if len(figures_png) >= 3 else 11 * cm
-            for b in figures_png:
-                img = Image(io.BytesIO(b))
-                img._restrictSize(17 * cm, max_h)
-                story.append(img)
-                story.append(Spacer(1, 0.2 * cm))
+        # Tableau
+        _render_table(df_export, story, styles)
 
-        else:
-            # Aucun PNG fourni → placeholder
-            story.append(_placeholder_box())
-            story.append(Spacer(1, 0.3 * cm))
+        # Zone de commentaire — toujours éditable, pré-remplie si déjà saisi dans Streamlit
+        story.append(Paragraph("<b>Commentaire :</b>", styles["TocH"]))
+        story.append(Spacer(1, 0.1 * cm))
+        sec_id = re.sub(r"[^A-Za-z0-9]", "_", sec.get("id", title))[:40]
+        story.append(_EditableComment(f"comment_{sec_id}", value=comment))
+        story.append(Spacer(1, 0.3 * cm))
 
-        # --- Tableau (si dispo) ---
-        df_raw = sec.get("table")
-        df_trunc = (
-            _truncate_with_total(df_raw, max_rows=MAX_TABLE_ROWS)
-            if isinstance(df_raw, pd.DataFrame) and not df_raw.empty
-            else None
-        )
-
-        if df_trunc is not None and not df_trunc.empty:
-            # Formatage texte (M€, %, bp, etc.) AVANT tout concat pour
-            # conserver le dtype numérique → is_numeric_dtype() fonctionne
-            df_fmt = _format_df_for_export(df_trunc)
-
-            # Styles pour le wrapping dans les cellules
-            from reportlab.lib.styles import ParagraphStyle as _PS
-            _cell_style = _PS(
-                "TblCell", fontName=_TABLE_FONT, fontSize=7, leading=9,
-            )
-            _hdr_style = _PS(
-                "TblHdr", fontName=_TABLE_FONT_BOLD, fontSize=7, leading=9,
-                textColor=colors.white,
-            )
-
-            # Largeurs proportionnelles : colonne texte plus large, numériques plus étroites
-            TOTAL_W = 17 * cm
-            def _col_w(name):
-                n = str(name).lower()
-                if any(x in n for x in ["(%)", "bp", "var", "duration"]):
-                    return 1.8
-                if "m€" in n or "delta" in n or "tendance" in n:
-                    return 2.2
-                return 4.0  # colonnes libellé / texte
-
-            raw_w = [_col_w(c) for c in df_fmt.columns]
-            col_widths = [w * TOTAL_W / sum(raw_w) for w in raw_w]
-
-            # Styles Paragraph (la couleur est portée par le Paragraph, pas par TableStyle)
-            from reportlab.lib.styles import ParagraphStyle as _PS
-            _hdr_s  = _PS("TH", fontName=_TABLE_FONT_BOLD, fontSize=7, leading=9, textColor=colors.white)
-            _cell_s = _PS("TD", fontName=_TABLE_FONT,      fontSize=7, leading=9, textColor=colors.black)
-            _tot_s  = _PS("TT", fontName=_TABLE_FONT_BOLD, fontSize=7, leading=9, textColor=colors.white)
-
-            def _trend_color(txt):
-                t = txt.strip().upper()
-                if "HAUSSE" in t: return TREND_UP_HEX
-                if "BAISSE" in t: return TREND_DOWN_HEX
-                if "STABLE" in t: return TREND_STABLE_HEX
-                return None
-
-            # Repère index colonne Tendance
-            trend_col_idx = next(
-                (j for j, c in enumerate(df_fmt.columns) if "TENDANCE" in str(c).upper()),
-                None,
-            )
-
-            # Construction des cellules avec couleurs inline
-            rows_data = df_fmt.astype(str).values.tolist()
-            data = [[Paragraph(str(c), _hdr_s) for c in df_fmt.columns]]
-            base_style = [
-                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(MAIN_PURPLE_HEX)),
-                ("ALIGN", (0, 0), (-1, 0), "CENTER"),
-                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
-            ]
-
-            for row_idx, row in enumerate(rows_data, start=1):
-                is_total = any(str(v).strip().upper() == "TOTAL" for v in row)
-                style = _tot_s if is_total else _cell_s
-                cells = []
-                for col_idx, val in enumerate(row):
-                    if not is_total and trend_col_idx is not None and col_idx == trend_col_idx:
-                        hex_c = _trend_color(val)
-                        if hex_c:
-                            ps = _PS(f"Tend{row_idx}", fontName=_TABLE_FONT, fontSize=7,
-                                     leading=9, textColor=colors.HexColor(hex_c))
-                            cells.append(Paragraph(val, ps))
-                            continue
-                    cells.append(Paragraph(val, style))
-                data.append(cells)
-                if is_total:
-                    base_style.append(
-                        ("BACKGROUND", (0, row_idx), (-1, row_idx), colors.HexColor(MAIN_PURPLE_HEX))
-                    )
-
-            table = Table(data, colWidths=col_widths, hAlign="CENTER")
-            table.setStyle(TableStyle(base_style))
-            story.append(table)
-            story.append(Spacer(1, 0.4 * cm))
-
-        # --- Bloc "Commentaire" + champ éditable ---
-        story.append(Paragraph("<b>Commentaire :</b>", styles["Normal"]))
-        story.append(Spacer(1, 0.15 * cm))
-        # Champ éditable dans le PDF : pré-rempli si commentaire saisi dans Streamlit,
-        # sinon vide et modifiable directement dans le lecteur PDF.
-        story.append(
-            AnalyseTextField(
-                field_name=f"analyse_{idx}",
-                value=str(comment) if comment else "",
-            )
-        )
-        story.append(PageBreak())
-
-    # Build final PDF
-    doc.build(story, onFirstPage=_add_page_number, onLaterPages=_add_page_number)
+    doc.build(story)
     buffer.seek(0)
     return buffer.getvalue()

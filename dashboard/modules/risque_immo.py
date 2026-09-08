@@ -586,9 +586,11 @@ def render_risque_immo_tab(df_selection: pd.DataFrame, date_debut, date_fin):
             st.plotly_chart(fig_pie, use_container_width=True, key="immo_pie_rapport", config={"displayModeBar": "hover"})
 
     # Stockage pour l'onglet Rapport
+    from modules.rapport_export import fig_to_png_bytes_cached
     st.session_state["rapport_immo"] = {
-        "fig_pie": fig_pie,
-        "table":   view,
+        "fig_pie":     fig_pie,
+        "fig_pie_png": fig_to_png_bytes_cached(fig_pie),
+        "table":       view,
     }
 
     # ======================================================

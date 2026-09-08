@@ -1296,12 +1296,19 @@ def render_risque_spread_tab(df_selection: pd.DataFrame, date_debut, date_fin):
         )
 
     # Stockage pour l'onglet Rapport
+    from modules.rapport_export import fig_to_png_bytes_cached
+    _fig_geo_spread   = fig_geo if top10_souv is not None else None
+    _fig_conc_spread  = fig_conc if top10_corp is not None else None
     st.session_state["rapport_spread"] = {
-        "fig_scatter":    fig_scatter,
-        "fig_treemap":    fig_treemap_global,
-        "fig_geo":        fig_geo if top10_souv is not None else None,
-        "fig_conc":       fig_conc if top10_corp is not None else None,
-        "table_global":   view_final,
-        "table_souverain": top10_souv,
-        "table_corporate": top10_corp,
+        "fig_scatter":        fig_scatter,
+        "fig_treemap":        fig_treemap_global,
+        "fig_geo":            _fig_geo_spread,
+        "fig_conc":           _fig_conc_spread,
+        "fig_scatter_png":    fig_to_png_bytes_cached(fig_scatter),
+        "fig_treemap_png":    fig_to_png_bytes_cached(fig_treemap_global),
+        "fig_geo_png":        fig_to_png_bytes_cached(_fig_geo_spread),
+        "fig_conc_png":       fig_to_png_bytes_cached(_fig_conc_spread),
+        "table_global":       view_final,
+        "table_souverain":    top10_souv,
+        "table_corporate":    top10_corp,
     }

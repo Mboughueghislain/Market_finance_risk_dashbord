@@ -7,7 +7,8 @@ from typing import List, Dict, Optional
 from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.styles import ParagraphStyle
 import pandas as pd
-import plotly.io as pio  
+import plotly.io as pio
+import streamlit as st
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import cm
 from reportlab.lib import colors
@@ -30,68 +31,79 @@ TREND_UP_HEX = "#008000"      # vert
 TREND_DOWN_HEX = "#D62728"    # rouge
 TREND_STABLE_HEX = "#555555"  # gris
 
-# ==========================
-# Helpers
-# ==========================
-# === Helpers figures pour le PDF ============================================
-def is_heavy_figure(fig) -> bool:
+
+# ===========================================================================
+# Cache PNG : convertit une figure Plotly en bytes au moment du rendu de
+# l'onglet (pas au clic bouton). Le cache évite de re-convertir si la figure
+# n'a pas changé (même JSON → même clé de cache).
+# ===========================================================================
+@st.cache_data(show_spinner=False, max_entries=40)
+def _fig_json_to_png(fig_json: str, width: int, height: int, scale: float) -> Optional[bytes]:
+    """Interne — prend le JSON de la figure, retourne des bytes PNG."""
+    import json
+    import plotly.graph_objects as go
+    try:
+        fig = go.Figure(json.loads(fig_json))
+        fig.update_layout(paper_bgcolor="white", plot_bgcolor="white", font_color="#333333")
+        trace_types = {getattr(tr, "type", None) for tr in fig.data}
+        if trace_types & {"scattergeo", "choropleth", "choroplethmapbox"}:
+            fig.update_geos(fitbounds=False)
+        return pio.to_image(fig, format="png", width=width, height=height, scale=scale)
+    except Exception as e:
+        print(f"[rapport_export] _fig_json_to_png error: {repr(e)}")
+        return None
+
+
+def fig_to_png_bytes_cached(
+    fig,
+    width: int = 1000,
+    height: int = 450,
+    scale: float = 1.5,
+) -> Optional[bytes]:
     """
-    Retourne True uniquement pour les treemaps (figures non exportables par kaleido).
-    Les cartes géographiques sont maintenant exportées normalement.
+    Convertit une figure Plotly en PNG.
+    Tente d'abord le cache (@st.cache_data).
+    Si le résultat mis en cache est None (échec antérieur de kaleido),
+    réessaie directement sans cache pour obtenir un résultat frais.
     """
     if fig is None:
-        return False
+        return None
+    try:
+        result = _fig_json_to_png(fig.to_json(), width=width, height=height, scale=scale)
+        if result is not None:
+            return result
+        # Le cache contenait None → on réessaie sans cache
+        print("[rapport_export] cache=None, retry direct kaleido...")
+        return fig_to_png_bytes(fig, width=width, height=height, scale=scale)
+    except Exception as e:
+        print(f"[rapport_export] fig_to_png_bytes_cached: {repr(e)}")
+        return None
 
-    trace_types = {getattr(tr, "type", None) for tr in getattr(fig, "data", [])}
 
-    if "treemap" in trace_types:
-        return True
-
+# ===========================================================================
+# Helpers
+# ===========================================================================
+def is_heavy_figure(fig) -> bool:
     return False
 
 
 def fig_to_png_for_pdf(fig, width: int = 700, height: int = 320, scale: int = 1) -> Optional[bytes]:
-    """
-    Convertit une figure Plotly en PNG pour le PDF.
-    Retourne None uniquement si la figure est un treemap ou en cas d'erreur kaleido.
-    """
-    if fig is None:
-        return None
+    return fig_to_png_bytes(fig, width=width, height=height, scale=scale)
 
-    if is_heavy_figure(fig):
-        print("[rapport_export] fig_to_png_for_pdf: treemap -> placeholder")
-        return None
-
-    try:
-        print("[rapport_export] fig_to_png_for_pdf: export PNG OK –", type(fig))
-        return pio.to_image(
-            fig,
-            format="png",
-            width=width,
-            height=height,
-            scale=scale,
-            engine="kaleido",
-        )
-    except Exception as e:
-        print("[rapport_export] fig_to_png_for_pdf: ERREUR export –", repr(e))
-        return None
 
 def fig_to_png_bytes(
     fig,
     width: int = 1000,
     height: int = 480,
     scale: float = 1.5,
-):
+) -> Optional[bytes]:
     """
-    Convertit une figure Plotly en image PNG (bytes) pour le PDF.
-    - Force fond blanc (paper_bgcolor + plot_bgcolor) pour éviter les fonds sombres.
-    - Retourne None si la figure est None ou en cas d'erreur.
+    Convertit une figure Plotly en PNG pour le PDF.
+    Force fond blanc et désactive fitbounds pour les cartes géo.
     """
     if fig is None:
-        print("[rapport_export] fig_to_png_bytes: fig is None")
         return None
 
-    print("[rapport_export] Export Plotly figure via kaleido:", type(fig))
     try:
         import plotly.graph_objects as go
         fig_export = go.Figure(fig.to_dict())
@@ -101,11 +113,8 @@ def fig_to_png_bytes(
             font_color="#333333",
         )
 
-        # Pour les cartes géographiques : fitbounds="locations" peut bloquer kaleido
-        # → on le désactive pour l'export statique
         trace_types = {getattr(tr, "type", None) for tr in getattr(fig_export, "data", [])}
-        is_geo = bool(trace_types & {"scattergeo", "choropleth", "choroplethmapbox"})
-        if is_geo:
+        if trace_types & {"scattergeo", "choropleth", "choroplethmapbox"}:
             fig_export.update_geos(fitbounds=False)
 
         return pio.to_image(
@@ -114,7 +123,6 @@ def fig_to_png_bytes(
             width=width,
             height=height,
             scale=scale,
-            engine="kaleido",
         )
     except Exception as e:
         print("[rapport_export] Erreur fig_to_png_bytes:", repr(e))
@@ -305,28 +313,6 @@ def is_exportable_figure(fig) -> bool:
     return True
 
 
-# Helper : conversion Plotly -> PNG (pour le PDF)
-def fig_to_png_for_pdf(fig):
-    """
-    Renvoie les bytes PNG d'une figure Plotly pour le PDF,
-    ou None si la figure est None ou en cas d'erreur.
-    """
-    if fig is None:
-        return None
-
-    # Option : un peu de log pour suivre dans la console
-    trace_types = {getattr(tr, "type", None) for tr in getattr(fig, "data", [])}
-    print("[rapport] fig_to_png_for_pdf: trace_types =", trace_types)
-
-    # Taille standard pour le PDF
-    width = 700
-    height = 320
-    scale = 1
-
-    # On délègue à la fonction utilitaire du module rapport_export
-    from modules.rapport_export import fig_to_png_bytes
-
-    return fig_to_png_bytes(fig, width=width, height=height, scale=scale)
 
 # ==========================
 # PDF (ReportLab)

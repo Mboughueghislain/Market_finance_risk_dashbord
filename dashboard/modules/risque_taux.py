@@ -954,10 +954,13 @@ def render_risque_taux_tab(df_selection: pd.DataFrame, date_debut, date_fin):
         _render_detail_titres_section(dff, d0, d1)
 
     # Stockage pour l'onglet Rapport
+    from modules.rapport_export import fig_to_png_bytes_cached
     st.session_state["rapport_taux"] = {
-        "fig_stack":      fig_stack,
-        "fig_var_seg":    fig_var_seg,
-        "table_duration": view_table,
-        "table_var":      df_var_view,
-        "cols_gestion":   cols_gestion,
+        "fig_stack":          fig_stack,
+        "fig_var_seg":        fig_var_seg,
+        "fig_stack_png":      fig_to_png_bytes_cached(fig_stack),
+        "fig_var_seg_png":    fig_to_png_bytes_cached(fig_var_seg),
+        "table_duration":     view_table,
+        "table_var":          df_var_view,
+        "cols_gestion":       cols_gestion,
     }

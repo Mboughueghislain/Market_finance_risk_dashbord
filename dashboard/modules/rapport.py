@@ -32,6 +32,11 @@ def build_portefeuille_block_for_report(df_selection, use_transpa, date_debut, d
         f"{pd.to_datetime(date_debut).strftime('%d/%m/%Y')} "
         f"→ {pd.to_datetime(date_fin).strftime('%d/%m/%Y')}"
     )
+    # Version sans caractères spéciaux pour les noms de fichiers
+    periode_safe = (
+        f"{pd.to_datetime(date_debut).strftime('%d%m%Y')}"
+        f"_au_{pd.to_datetime(date_fin).strftime('%d%m%Y')}"
+    )
 
     # =================================================================
     # 1. PORTEFEUILLE GLOBAL
@@ -48,9 +53,11 @@ def build_portefeuille_block_for_report(df_selection, use_transpa, date_debut, d
 
         col_pie, col_bar = st.columns(2)
         if fig_pie:
-            col_pie.plotly_chart(fig_pie, use_container_width=True, key="rapport_pf_pie")
+            col_pie.plotly_chart(fig_pie, use_container_width=True, key="rapport_pf_pie",
+                config={"displayModeBar": "hover", "toImageButtonOptions": {"filename": f"portefeuille_repartition_vm_{periode_safe}", "format": "png"}})
         if fig_bar:
-            col_bar.plotly_chart(fig_bar, use_container_width=True, key="rapport_pf_bar")
+            col_bar.plotly_chart(fig_bar, use_container_width=True, key="rapport_pf_bar",
+                config={"displayModeBar": "hover", "toImageButtonOptions": {"filename": f"portefeuille_allocation_classe_{periode_safe}", "format": "png"}})
 
         if table_pf is not None and not table_pf.empty:
             render_static_dataframe(apply_common_table_styles(table_pf))
@@ -66,7 +73,8 @@ def build_portefeuille_block_for_report(df_selection, use_transpa, date_debut, d
             "title": "1. Portefeuille global",
             "subtitle": "Répartition de la valeur de marché par classe d'actifs",
             "table": table_pf,
-            "_figures_raw": [fig_pie, fig_bar],
+            "figures_png": [pf.get("fig_pie_png"), pf.get("fig_bar_png")],
+            "figures_obj": [fig_pie, fig_bar],
             "comment": commentaire_pf,
         })
 
@@ -91,7 +99,8 @@ def build_portefeuille_block_for_report(df_selection, use_transpa, date_debut, d
         # 2.1 Duration x type de gestion
         st.markdown("### 2.1 Répartition par duration et type de gestion")
         if fig_stack:
-            st.plotly_chart(fig_stack, use_container_width=True, key="rapport_taux_stack", config={"displayModeBar": "hover"})
+            st.plotly_chart(fig_stack, use_container_width=True, key="rapport_taux_stack",
+                config={"displayModeBar": "hover", "toImageButtonOptions": {"filename": f"taux_repartition_duration_gestion_{periode_safe}", "format": "png"}})
         if table_duration is not None and not table_duration.empty:
             fmt_dur = {c: fmt_meur for c in cols_gestion + ["Total"] if c in table_duration.columns}
             render_static_dataframe(apply_common_table_styles(table_duration, fmt_dur))
@@ -105,7 +114,8 @@ def build_portefeuille_block_for_report(df_selection, use_transpa, date_debut, d
             "title": "2.1 Risque Taux – Répartition par duration et type de gestion",
             "subtitle": "",
             "table": table_duration,
-            "_figures_raw": [fig_stack],
+            "figures_png": [taux.get("fig_stack_png")],
+            "figures_obj": [fig_stack],
             "comment": commentaire_taux_vm,
         })
 
@@ -113,7 +123,8 @@ def build_portefeuille_block_for_report(df_selection, use_transpa, date_debut, d
         st.markdown("---")
         st.markdown("### 2.2 Variation & VaR par segment de duration")
         if fig_var_seg:
-            st.plotly_chart(fig_var_seg, use_container_width=True, key="rapport_taux_var", config={"displayModeBar": "hover"})
+            st.plotly_chart(fig_var_seg, use_container_width=True, key="rapport_taux_var",
+                config={"displayModeBar": "hover", "toImageButtonOptions": {"filename": f"taux_variation_var_segment_{periode_safe}", "format": "png"}})
         if table_var is not None and not table_var.empty:
             fmt_var = {
                 "Δ VM (M€)":    fmt_meur,
@@ -131,7 +142,8 @@ def build_portefeuille_block_for_report(df_selection, use_transpa, date_debut, d
             "title": "2.2 Risque Taux – Variation & VaR par segment de duration",
             "subtitle": "",
             "table": table_var,
-            "_figures_raw": [fig_var_seg],
+            "figures_png": [taux.get("fig_var_seg_png")],
+            "figures_obj": [fig_var_seg],
             "comment": commentaire_taux_var,
         })
 
@@ -154,12 +166,14 @@ def build_portefeuille_block_for_report(df_selection, use_transpa, date_debut, d
         table_global = spread.get("table_global")
 
         if fig_scatter:
-            st.plotly_chart(fig_scatter, use_container_width=True, key="rapport_spread_scatter", config={"displayModeBar": "hover"})
+            st.plotly_chart(fig_scatter, use_container_width=True, key="rapport_spread_scatter",
+                config={"displayModeBar": "hover", "toImageButtonOptions": {"filename": f"spread_global_scatter_{periode_safe}", "format": "png"}})
         if table_global is not None and not table_global.empty:
             render_static_dataframe(apply_common_table_styles(table_global))
         if fig_treemap:
             st.markdown("**Répartition par Type d'émetteur / Rating / Titre**")
-            st.plotly_chart(fig_treemap, use_container_width=True, key="rapport_spread_treemap", config={"displayModeBar": "hover"})
+            st.plotly_chart(fig_treemap, use_container_width=True, key="rapport_spread_treemap",
+                config={"displayModeBar": "hover", "toImageButtonOptions": {"filename": f"spread_repartition_emetteur_rating_{periode_safe}", "format": "png"}})
         commentaire_spread_global = st.text_area(
             "📝 Commentaire – Risque de Spread global",
             key="commentaire_spread_global_rapport",
@@ -170,7 +184,8 @@ def build_portefeuille_block_for_report(df_selection, use_transpa, date_debut, d
             "title": "3.1 Risque de Spread – Vue globale",
             "subtitle": "",
             "table": table_global,
-            "_figures_raw": [fig_scatter, fig_treemap],
+            "figures_png": [spread.get("fig_scatter_png"), spread.get("fig_treemap_png")],
+            "figures_obj": [fig_scatter, fig_treemap],
             "comment": commentaire_spread_global,
         })
 
@@ -181,7 +196,8 @@ def build_portefeuille_block_for_report(df_selection, use_transpa, date_debut, d
         table_souv  = spread.get("table_souverain")
 
         if fig_geo:
-            st.plotly_chart(fig_geo, use_container_width=True, key="rapport_spread_geo", config={"displayModeBar": "hover"})
+            st.plotly_chart(fig_geo, use_container_width=True, key="rapport_spread_geo",
+                config={"displayModeBar": "hover", "toImageButtonOptions": {"filename": f"spread_souverain_geographique_{periode_safe}", "format": "png"}})
         if table_souv is not None and not table_souv.empty:
             render_static_dataframe(apply_common_table_styles(table_souv))
         commentaire_souv = st.text_area(
@@ -194,7 +210,8 @@ def build_portefeuille_block_for_report(df_selection, use_transpa, date_debut, d
             "title": "3.2 Risque de Spread – Souverain",
             "subtitle": "",
             "table": table_souv,
-            "_figures_raw": [fig_geo],
+            "figures_png": [spread.get("fig_geo_png")],
+            "figures_obj": [fig_geo],
             "comment": commentaire_souv,
         })
 
@@ -205,7 +222,8 @@ def build_portefeuille_block_for_report(df_selection, use_transpa, date_debut, d
         table_corp = spread.get("table_corporate")
 
         if fig_conc:
-            st.plotly_chart(fig_conc, use_container_width=True, key="rapport_spread_conc", config={"displayModeBar": "hover"})
+            st.plotly_chart(fig_conc, use_container_width=True, key="rapport_spread_conc",
+                config={"displayModeBar": "hover", "toImageButtonOptions": {"filename": f"spread_corporate_concentration_{periode_safe}", "format": "png"}})
         if table_corp is not None and not table_corp.empty:
             render_static_dataframe(apply_common_table_styles(table_corp))
         commentaire_corp = st.text_area(
@@ -218,7 +236,8 @@ def build_portefeuille_block_for_report(df_selection, use_transpa, date_debut, d
             "title": "3.3 Risque de Spread – Corporate",
             "subtitle": "",
             "table": table_corp,
-            "_figures_raw": [fig_conc],
+            "figures_png": [spread.get("fig_conc_png")],
+            "figures_obj": [fig_conc],
             "comment": commentaire_corp,
         })
 
@@ -240,7 +259,8 @@ def build_portefeuille_block_for_report(df_selection, use_transpa, date_debut, d
         table_issuer = action.get("table_issuer")
 
         if fig_issuer:
-            st.plotly_chart(fig_issuer, use_container_width=True, key="rapport_action_issuer", config={"displayModeBar": "hover"})
+            st.plotly_chart(fig_issuer, use_container_width=True, key="rapport_action_issuer",
+                config={"displayModeBar": "hover", "toImageButtonOptions": {"filename": f"action_concentration_emetteur_groupe_{periode_safe}", "format": "png"}})
         if table_issuer is not None and not table_issuer.empty:
             render_static_dataframe(apply_common_table_styles(table_issuer))
         commentaire_issuer = st.text_area(
@@ -253,7 +273,8 @@ def build_portefeuille_block_for_report(df_selection, use_transpa, date_debut, d
             "title": "4.1 Risque Action – Concentration par émetteur / groupe",
             "subtitle": "",
             "table": table_issuer,
-            "_figures_raw": [fig_issuer],
+            "figures_png": [action.get("fig_issuer_png")],
+            "figures_obj": [fig_issuer],
             "comment": commentaire_issuer,
         })
 
@@ -264,7 +285,8 @@ def build_portefeuille_block_for_report(df_selection, use_transpa, date_debut, d
         table_geo      = action.get("table_geo")
 
         if fig_geo_action:
-            st.plotly_chart(fig_geo_action, use_container_width=True, key="rapport_action_geo", config={"displayModeBar": "hover"})
+            st.plotly_chart(fig_geo_action, use_container_width=True, key="rapport_action_geo",
+                config={"displayModeBar": "hover", "toImageButtonOptions": {"filename": f"action_concentration_geographique_{periode_safe}", "format": "png"}})
         if table_geo is not None and not table_geo.empty:
             render_static_dataframe(apply_common_table_styles(table_geo))
         commentaire_geo = st.text_area(
@@ -277,7 +299,8 @@ def build_portefeuille_block_for_report(df_selection, use_transpa, date_debut, d
             "title": "4.2 Risque Action – Concentration géographique",
             "subtitle": "",
             "table": table_geo,
-            "_figures_raw": [fig_geo_action],
+            "figures_png": [action.get("fig_geo_png")],
+            "figures_obj": [fig_geo_action],
             "comment": commentaire_geo,
         })
 
@@ -288,7 +311,8 @@ def build_portefeuille_block_for_report(df_selection, use_transpa, date_debut, d
         table_secteur = action.get("table_secteur")
 
         if fig_secteur:
-            st.plotly_chart(fig_secteur, use_container_width=True, key="rapport_action_secteur", config={"displayModeBar": "hover"})
+            st.plotly_chart(fig_secteur, use_container_width=True, key="rapport_action_secteur",
+                config={"displayModeBar": "hover", "toImageButtonOptions": {"filename": f"action_concentration_secteur_{periode_safe}", "format": "png"}})
         if table_secteur is not None and not table_secteur.empty:
             render_static_dataframe(apply_common_table_styles(table_secteur))
         commentaire_sect = st.text_area(
@@ -301,7 +325,8 @@ def build_portefeuille_block_for_report(df_selection, use_transpa, date_debut, d
             "title": "4.3 Risque Action – Concentration par secteur",
             "subtitle": "",
             "table": table_secteur,
-            "_figures_raw": [fig_secteur],
+            "figures_png": [action.get("fig_secteur_png")],
+            "figures_obj": [fig_secteur],
             "comment": commentaire_sect,
         })
 
@@ -319,7 +344,8 @@ def build_portefeuille_block_for_report(df_selection, use_transpa, date_debut, d
         table_immo = immo.get("table")
 
         if fig_immo:
-            st.plotly_chart(fig_immo, use_container_width=True, key="rapport_immo_pie", config={"displayModeBar": "hover"})
+            st.plotly_chart(fig_immo, use_container_width=True, key="rapport_immo_pie",
+                config={"displayModeBar": "hover", "toImageButtonOptions": {"filename": f"immobilier_repartition_vm_{periode_safe}", "format": "png"}})
         if table_immo is not None and not table_immo.empty:
             render_static_dataframe(apply_common_table_styles(table_immo))
         commentaire_immo = st.text_area(
@@ -332,7 +358,8 @@ def build_portefeuille_block_for_report(df_selection, use_transpa, date_debut, d
             "title": "5. Risque Immobilier",
             "subtitle": "",
             "table": table_immo,
-            "_figures_raw": [fig_immo],
+            "figures_png": [immo.get("fig_pie_png")],
+            "figures_obj": [fig_immo],
             "comment": commentaire_immo,
         })
 
@@ -346,21 +373,27 @@ def build_portefeuille_block_for_report(df_selection, use_transpa, date_debut, d
         st.info("Aucune section disponible pour l'export.")
         return
 
-    if st.button("📄 Générer le PDF complet", key="btn_build_pdf"):
-        with st.spinner("Génération du rapport PDF..."):
-            from modules.rapport_export import fig_to_png_bytes
-            for sec in sections_for_export:
-                figs_raw = sec.pop("_figures_raw", []) or []
-                sec["figures_png"] = [
-                    fig_to_png_bytes(fig) if fig is not None else None
-                    for fig in figs_raw
-                ]
+    col_btn, col_reset = st.columns([3, 1])
+
+    with col_reset:
+        if st.button("🔄 Réinitialiser le cache graphiques", key="btn_clear_png_cache",
+                     help="À utiliser si les graphiques n'apparaissent pas dans le PDF"):
+            from modules.rapport_export import _fig_json_to_png
+            _fig_json_to_png.clear()
+            st.toast("Cache réinitialisé — revisitez les onglets puis régénérez le PDF.", icon="✅")
+
+    with col_btn:
+        generate = st.button("📄 Générer le PDF complet", key="btn_build_pdf")
+
+    if generate:
+        with st.spinner("Génération du rapport PDF (conversion des graphiques en cours)..."):
             pdf_bytes = build_full_pdf_report_v2(sections_for_export, periode_label)
 
+    if generate:
         st.download_button(
-            "Télécharger le rapport (PDF)",
+            "⬇️ Télécharger le rapport (PDF)",
             data=pdf_bytes,
-            file_name="rapport_risque_commente.pdf",
+            file_name=f"rapport_risque_{periode_safe}.pdf",
             mime="application/pdf",
             key="btn_download_pdf",
         )

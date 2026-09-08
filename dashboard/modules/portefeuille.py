@@ -748,10 +748,13 @@ def render_portefeuille_tab(df_selection: pd.DataFrame, use_transpa: bool, date_
     styler = apply_common_table_styles(aff, fmt_map=fmt_map)
 
     # Stockage pour l'onglet Rapport
+    from modules.rapport_export import fig_to_png_bytes_cached
     st.session_state["rapport_portefeuille"] = {
-        "fig_pie": fig_pie,
-        "fig_bar": fig_bar,
-        "table": aff,
+        "fig_pie":     fig_pie,
+        "fig_bar":     fig_bar,
+        "fig_pie_png": fig_to_png_bytes_cached(fig_pie),
+        "fig_bar_png": fig_to_png_bytes_cached(fig_bar),
+        "table":       aff,
     }
 
     st.markdown(
