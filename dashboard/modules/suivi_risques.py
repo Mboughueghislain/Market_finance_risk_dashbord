@@ -200,6 +200,8 @@ def load_parametres_v2(picture_dir: str) -> pd.DataFrame | None:
                 col_map["libelle_onglet"] = c
             elif "SOUS" in cu and "ONGLET" in cu:
                 col_map["sous_onglet"] = c
+            elif "PERIM" in cu:
+                col_map["perimetre"] = c
             elif "NOM" in cu and ("IMAGE" in cu or "L'IMAGE" in cu):
                 col_map["nom_image"] = c
             elif "TITRE" in cu:
@@ -221,6 +223,8 @@ def load_parametres_v2(picture_dir: str) -> pd.DataFrame | None:
         df["libelle_onglet"] = df["libelle_onglet"].astype(str).str.strip()
         df["nom_image"]      = df["nom_image"].astype(str).str.strip()
         df["sous_onglet"]    = df["sous_onglet"].astype(str).str.strip() if "sous_onglet" in df.columns else "N"
+        df["perimetre"]      = df["perimetre"].astype(str).str.strip().str.upper() if "perimetre" in df.columns else "N"
+        df["perimetre"]      = df["perimetre"].replace({"NAN": "N", "": "N"}).fillna("N")
         df["extension"]      = (df["extension"].astype(str).str.strip().str.lower()
                                 if "extension" in df.columns else "png")
         df["extension"]      = df["extension"].replace({"nan": "png", "": "png"}).fillna("png")
@@ -238,7 +242,8 @@ def load_parametres_v2(picture_dir: str) -> pd.DataFrame | None:
 # ── Rendu dynamique depuis le nouveau format Excel ────────────────────────────
 
 def render_suivi_risques_dynamic(
-    date_debut, date_fin, picture_dir: str, archives_dir: str
+    date_debut, date_fin, picture_dir: str, archives_dir: str,
+    canton: str = "ALL",
 ) -> None:
     """
     Génère les onglets et sous-onglets dynamiquement depuis l'Excel :
@@ -263,11 +268,16 @@ def render_suivi_risques_dynamic(
     if df is None or not date_d1:
         return
 
-    def _show_file(nom_image: str, extension: str, titre: str) -> None:
-        filepath = archives_path / f"{date_d1}_{nom_image}.{extension}"
+    def _show_file(nom_image: str, extension: str, titre: str, perimetre: str = "N") -> None:
+        # Périmètre Y → on insère le canton entre la date et le nom de l'image
+        if perimetre == "Y" and canton and canton.upper() != "ALL":
+            prefix = f"{date_d1}_{canton}"
+        else:
+            prefix = str(date_d1)
+        filepath = archives_path / f"{prefix}_{nom_image}.{extension}"
         if not filepath.exists():
             alt_ext = "html" if extension == "png" else "png"
-            alt = archives_path / f"{date_d1}_{nom_image}.{alt_ext}"
+            alt = archives_path / f"{prefix}_{nom_image}.{alt_ext}"
             if alt.exists():
                 filepath, extension = alt, alt_ext
         if titre:
@@ -302,14 +312,14 @@ def render_suivi_risques_dynamic(
             if not sous:
                 for _, row in onglet_df.iterrows():
                     _show_file(str(row["nom_image"]), str(row.get("extension", "png")),
-                               str(row.get("titre", "")))
+                               str(row.get("titre", "")), str(row.get("perimetre", "N")))
             else:
                 sub_tabs = st.tabs(sous)
                 for sub_tab, sous_label in zip(sub_tabs, sous):
                     with sub_tab:
                         for _, row in onglet_df[onglet_df["sous_onglet"] == sous_label].iterrows():
                             _show_file(str(row["nom_image"]), str(row.get("extension", "png")),
-                                       str(row.get("titre", "")))
+                                       str(row.get("titre", "")), str(row.get("perimetre", "N")))
 
 
 # ── Gestion des dates disponibles dans ARCHIVES ───────────────────────────────

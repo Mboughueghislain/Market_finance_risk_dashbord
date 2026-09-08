@@ -910,9 +910,9 @@ def _frag_risque_immo(df_selection, date_debut, date_fin):
     render_risque_immo_tab(df_selection=df_selection, date_debut=date_debut, date_fin=date_fin)
 
 @st.fragment
-def _frag_suivi_indicateurs(date_debut, date_fin, sr_picture, sr_archives):
+def _frag_suivi_indicateurs(date_debut, date_fin, sr_picture, sr_archives, canton):
     from modules.suivi_risques import render_suivi_risques_dynamic
-    render_suivi_risques_dynamic(date_debut, date_fin, sr_picture, sr_archives)
+    render_suivi_risques_dynamic(date_debut, date_fin, sr_picture, sr_archives, canton=canton)
 
 # =========================
 # ONGLET : SUIVI DU PORTEFEUILLE
@@ -1085,7 +1085,7 @@ with suivi_indic_tab:
 
     _sr_picture  = _cfg.get("suivi_risques_picture_dir", "")
     _sr_archives = _cfg.get("suivi_risques_archives_dir", "")
-    _frag_suivi_indicateurs(date_debut, date_fin, _sr_picture, _sr_archives)
+    _frag_suivi_indicateurs(date_debut, date_fin, _sr_picture, _sr_archives, canton)
 
 # =========================
 # ONGLET : DATA
