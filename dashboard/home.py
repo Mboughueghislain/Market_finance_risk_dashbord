@@ -910,45 +910,9 @@ def _frag_risque_immo(df_selection, date_debut, date_fin):
     render_risque_immo_tab(df_selection=df_selection, date_debut=date_debut, date_fin=date_fin)
 
 @st.fragment
-def _frag_suivi_marche(date_debut, date_fin, sr_picture, sr_archives):
-    st.markdown("#### 📉 Suivi Marché")
-    render_suivi_risques_canton("SDG", "ALL", date_debut, date_fin, sr_picture, sr_archives)
-
-@st.fragment
-def _frag_risque_sdg(date_debut, date_fin, sr_picture, sr_archives, canton):
-    st.markdown("#### 📊 Risque SDG")
-    _valo_subtabs = st.tabs(["📊 Risque SDG", "🔍 Fiabilité de la valorisation"])
-    with _valo_subtabs[0]:
-        render_suivi_risques_canton("VALO", "ALL", date_debut, date_fin, sr_picture, sr_archives,
-                                    selected_cantons=canton)
-    with _valo_subtabs[1]:
-        render_suivi_risques_canton("FIAB_VALO", "ALL", date_debut, date_fin, sr_picture, sr_archives)
-
-@st.fragment
-def _frag_kpi(date_debut, date_fin, sr_picture, sr_archives, canton):
-    st.markdown("#### ⚠️ KPI")
-    _kpi_tabs = st.tabs([
-        "📋 Cotation du risque",
-        "📊 Niveau de risque",
-        "📈 Indicateur de risque",
-        "🏢 Gestion directe",
-        "📖 Définition des indicateurs",
-    ])
-    with _kpi_tabs[0]:
-        render_suivi_risques_canton("DEFAUT", "ALL", date_debut, date_fin, sr_picture, sr_archives,
-                                    onglet_filter="Cotation du risque", selected_cantons=canton)
-    with _kpi_tabs[1]:
-        render_suivi_risques_canton("DEFAUT", "ALL", date_debut, date_fin, sr_picture, sr_archives,
-                                    onglet_filter="Niveau de risque", selected_cantons=canton)
-    with _kpi_tabs[2]:
-        render_suivi_risques_canton("DEFAUT", "ALL", date_debut, date_fin, sr_picture, sr_archives,
-                                    onglet_filter="Indicateur de risque", selected_cantons=canton)
-    with _kpi_tabs[3]:
-        render_suivi_risques_canton("DEFAUT", "ALL", date_debut, date_fin, sr_picture, sr_archives,
-                                    onglet_filter="Gestion directe", selected_cantons=canton)
-    with _kpi_tabs[4]:
-        render_suivi_risques_canton("DEFAUT", "ALL", date_debut, date_fin, sr_picture, sr_archives,
-                                    onglet_filter="Définition des indicateurs", selected_cantons=canton)
+def _frag_suivi_indicateurs(date_debut, date_fin, sr_picture, sr_archives):
+    from modules.suivi_risques import render_suivi_risques_dynamic
+    render_suivi_risques_dynamic(date_debut, date_fin, sr_picture, sr_archives)
 
 # =========================
 # ONGLET : SUIVI DU PORTEFEUILLE
@@ -1119,23 +1083,9 @@ with suivi_indic_tab:
             get_available_dates.clear()
             st.rerun()
 
-    indic_sdg_tab, indic_valo_tab, indic_defaut_tab = st.tabs([
-        "📉 Suivi Marché",
-        "📊 Risque SDG",
-        "⚠️ KPI",
-    ])
-
     _sr_picture  = _cfg.get("suivi_risques_picture_dir", "")
     _sr_archives = _cfg.get("suivi_risques_archives_dir", "")
-
-    with indic_sdg_tab:
-        _frag_suivi_marche(date_debut, date_fin, _sr_picture, _sr_archives)
-
-    with indic_valo_tab:
-        _frag_risque_sdg(date_debut, date_fin, _sr_picture, _sr_archives, canton)
-
-    with indic_defaut_tab:
-        _frag_kpi(date_debut, date_fin, _sr_picture, _sr_archives, canton)
+    _frag_suivi_indicateurs(date_debut, date_fin, _sr_picture, _sr_archives)
 
 # =========================
 # ONGLET : DATA

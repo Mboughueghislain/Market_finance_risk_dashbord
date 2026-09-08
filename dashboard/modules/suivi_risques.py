@@ -174,6 +174,144 @@ def load_parametres(picture_dir: str) -> pd.DataFrame | None:
         return None
 
 
+# ── Chargement nouveau format Excel (Libellé / Sous-Onglet) ──────────────────
+
+@st.cache_data(ttl=300, show_spinner=False)
+def load_parametres_v2(picture_dir: str) -> pd.DataFrame | None:
+    """
+    Charge l'Excel avec la nouvelle structure de colonnes :
+    Onglet Python | Libellé onglet | Sous-Onglet Python | Périmètre |
+    Nom de l'image | Titre Graphique | Ordre | extension | largeur (cm)
+    """
+    try:
+        excel_path = _find_excel(picture_dir)
+        if excel_path is None:
+            return None
+
+        df = pd.read_excel(excel_path, header=0, engine="openpyxl")
+
+        col_map: dict[str, str] = {}
+        for col in df.columns:
+            c  = str(col).strip()
+            cu = c.upper()
+            if cu in ("NAN", ""):
+                continue
+            if "LIBEL" in cu and "SOUS" not in cu:
+                col_map["libelle_onglet"] = c
+            elif "SOUS" in cu and "ONGLET" in cu:
+                col_map["sous_onglet"] = c
+            elif "NOM" in cu and ("IMAGE" in cu or "L'IMAGE" in cu):
+                col_map["nom_image"] = c
+            elif "TITRE" in cu:
+                col_map["titre"] = c
+            elif cu == "ORDRE":
+                col_map["ordre"] = c
+            elif "EXTENSION" in cu:
+                col_map["extension"] = c
+            elif "LARGEUR" in cu:
+                col_map["largeur"] = c
+
+        if not {"libelle_onglet", "nom_image"}.issubset(col_map):
+            return None
+
+        df = df.rename(columns={v: k for k, v in col_map.items()})
+        df = df[[c for c in col_map if c in df.columns]]
+        df = df.dropna(subset=["nom_image", "libelle_onglet"])
+
+        df["libelle_onglet"] = df["libelle_onglet"].astype(str).str.strip()
+        df["nom_image"]      = df["nom_image"].astype(str).str.strip()
+        df["sous_onglet"]    = df["sous_onglet"].astype(str).str.strip() if "sous_onglet" in df.columns else "N"
+        df["extension"]      = (df["extension"].astype(str).str.strip().str.lower()
+                                if "extension" in df.columns else "png")
+        df["extension"]      = df["extension"].replace({"nan": "png", "": "png"}).fillna("png")
+        df["ordre"]          = (pd.to_numeric(df["ordre"], errors="coerce").fillna(99).astype(int)
+                                if "ordre" in df.columns else 99)
+        df["titre"]          = df["titre"].astype(str).str.strip() if "titre" in df.columns else ""
+
+        df = df[~df["libelle_onglet"].isin(["nan", "NAN", ""])]
+        return df.reset_index(drop=True)
+    except Exception as e:
+        print(f"[suivi_risques] load_parametres_v2: {e}")
+        return None
+
+
+# ── Rendu dynamique depuis le nouveau format Excel ────────────────────────────
+
+def render_suivi_risques_dynamic(
+    date_debut, date_fin, picture_dir: str, archives_dir: str
+) -> None:
+    """
+    Génère les onglets et sous-onglets dynamiquement depuis l'Excel :
+    - Onglets principaux  = valeurs uniques de 'Libellé onglet dans Python'
+    - Sous-onglets        = valeurs de 'Sous-Onglet Python' != 'N'
+    """
+    df             = load_parametres_v2(picture_dir)
+    available_dates = get_available_dates(archives_dir)
+    date_d1        = find_closest_date(available_dates, date_fin) if available_dates else None
+    archives_path  = _resolve_path(archives_dir)
+
+    with st.expander("🔍 Diagnostic", expanded=(df is None or not available_dates)):
+        if df is None:
+            st.error(f"Excel introuvable ou illisible dans : {picture_dir}")
+        else:
+            st.success(f"Excel chargé — {len(df)} lignes, {df['libelle_onglet'].nunique()} onglets")
+        if not available_dates:
+            st.error(f"Aucun fichier PNG dans : {archives_dir}")
+        else:
+            st.info(f"Date retenue : **{date_d1 or '—'}**  |  Dates disponibles : {', '.join(available_dates[-5:])}")
+
+    if df is None or not date_d1:
+        return
+
+    def _show_file(nom_image: str, extension: str, titre: str) -> None:
+        filepath = archives_path / f"{date_d1}_{nom_image}.{extension}"
+        if not filepath.exists():
+            alt_ext = "html" if extension == "png" else "png"
+            alt = archives_path / f"{date_d1}_{nom_image}.{alt_ext}"
+            if alt.exists():
+                filepath, extension = alt, alt_ext
+        if titre:
+            st.markdown(
+                f"<p style='font-weight:600;color:#1a1a2e;margin-bottom:4px'>{titre}</p>",
+                unsafe_allow_html=True,
+            )
+        if not filepath.exists():
+            st.markdown(
+                f"<div style='border:1px dashed #ccc;border-radius:6px;padding:12px;"
+                f"text-align:center;color:#888;font-size:0.85em'>"
+                f"Fichier non trouvé<br><code>{filepath.name}</code></div>",
+                unsafe_allow_html=True,
+            )
+        elif extension == "html":
+            components.html(filepath.read_text(encoding="utf-8", errors="replace"),
+                            height=600, scrolling=True)
+        else:
+            st.image(str(filepath), use_container_width=True)
+        st.markdown("<hr style='margin:8px 0;border-color:#e0d0f0'>", unsafe_allow_html=True)
+
+    # Onglets principaux (ordre de première apparition dans l'Excel)
+    onglets = list(dict.fromkeys(df["libelle_onglet"].tolist()))
+    tabs    = st.tabs(onglets)
+
+    for tab, onglet_label in zip(tabs, onglets):
+        with tab:
+            onglet_df = df[df["libelle_onglet"] == onglet_label].sort_values("ordre")
+            sous = [s for s in dict.fromkeys(onglet_df["sous_onglet"].tolist())
+                    if s not in ("N", "nan", "")]
+
+            if not sous:
+                for _, row in onglet_df.iterrows():
+                    _show_file(str(row["nom_image"]), str(row.get("extension", "png")),
+                               str(row.get("titre", "")))
+            else:
+                sub_tabs = st.tabs(sous)
+                for sub_tab, sous_label in zip(sub_tabs, sous):
+                    with sub_tab:
+                        for _, row in onglet_df[onglet_df["sous_onglet"] == sous_label].iterrows():
+                            _show_file(str(row["nom_image"]), str(row.get("extension", "png")),
+                                       str(row.get("titre", "")))
+
+
 # ── Gestion des dates disponibles dans ARCHIVES ───────────────────────────────
 
 @st.cache_data(ttl=60, show_spinner=False)
