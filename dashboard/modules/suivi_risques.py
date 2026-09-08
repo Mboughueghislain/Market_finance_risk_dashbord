@@ -368,8 +368,8 @@ def render_suivi_risques_dynamic(
                 )
                 _render_one(col, nom, ext, titre, perimetre, canton_override=code)
         elif container is None and _canton_code != "ALL":
-            # Canton unique, pleine largeur → 2/3 de la page
-            col, _ = st.columns([2, 1])
+            # Canton unique, pleine largeur → 2/3 centrés
+            _, col, _ = st.columns([1, 2, 1])
             _render_one(col, nom, ext, titre, perimetre)
         else:
             target = container if container is not None else st
