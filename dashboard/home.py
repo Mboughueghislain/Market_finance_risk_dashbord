@@ -855,7 +855,7 @@ if _user_role == "Admin":
         key="show_admin_tab",
     )
 
-_authenticator.logout("🚪  Se déconnecter", location="sidebar", key="btn_logout")
+_authenticator.logout("Se déconnecter", location="sidebar", key="btn_logout")
 
 
 # =========================
