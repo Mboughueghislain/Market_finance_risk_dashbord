@@ -48,6 +48,22 @@ def _read_html(filepath: Path) -> str:
     return text
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def _load_image_bytes(path: str) -> bytes | None:
+    """Charge les bytes d'une image depuis le disque/réseau et les met en cache 5 min."""
+    p = Path(path)
+    return p.read_bytes() if p.exists() else None
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _load_html_cached(path: str) -> str | None:
+    """Charge et met en cache le contenu d'un fichier HTML 5 min."""
+    p = Path(path)
+    if not p.exists():
+        return None
+    return _read_html(p)
+
+
 def _resolve_path(raw: str) -> Path:
     """Convertit un chemin Windows (UNC ou lettre de lecteur) en Path utilisable sous WSL/Linux."""
     raw = raw.strip()
@@ -334,18 +350,29 @@ def render_suivi_risques_dynamic(
                 f"<p style='font-weight:600;color:#1a1a2e;margin-bottom:4px'>{titre}</p>",
                 unsafe_allow_html=True,
             )
-        if not filepath.exists():
-            container.markdown(
-                f"<div style='border:1px dashed #ccc;border-radius:6px;padding:12px;"
-                f"text-align:center;color:#888;font-size:0.85em'>"
-                f"Fichier non trouvé<br><code>{filepath.name}</code></div>",
-                unsafe_allow_html=True,
-            )
-        elif ext == "html":
-            with container:
-                components.html(_read_html(filepath), height=600, scrolling=True)
+        if ext == "html":
+            html = _load_html_cached(str(filepath))
+            if html is None:
+                container.markdown(
+                    f"<div style='border:1px dashed #ccc;border-radius:6px;padding:12px;"
+                    f"text-align:center;color:#888;font-size:0.85em'>"
+                    f"Fichier non trouvé<br><code>{filepath.name}</code></div>",
+                    unsafe_allow_html=True,
+                )
+            else:
+                with container:
+                    components.html(html, height=600, scrolling=True)
         else:
-            container.image(str(filepath), use_container_width=True)
+            data = _load_image_bytes(str(filepath))
+            if data is None:
+                container.markdown(
+                    f"<div style='border:1px dashed #ccc;border-radius:6px;padding:12px;"
+                    f"text-align:center;color:#888;font-size:0.85em'>"
+                    f"Fichier non trouvé<br><code>{filepath.name}</code></div>",
+                    unsafe_allow_html=True,
+                )
+            else:
+                container.image(data, use_container_width=True)
 
     def _render_one_row(row, container=None) -> None:
         """
@@ -630,19 +657,29 @@ def render_suivi_risques_canton(
     archives_path = _resolve_path(archives_dir)
 
     def _display_file(file_path: Path, extension: str) -> None:
-        """Affiche un fichier PNG ou HTML selon son extension."""
-        if not file_path.exists():
-            st.markdown(
-                f"<div style='border:1px dashed #ccc;border-radius:6px;padding:12px;"
-                f"text-align:center;color:#888;font-size:0.85em'>"
-                f"Fichier non trouvé<br><code>{file_path.name}</code></div>",
-                unsafe_allow_html=True,
-            )
-            return
+        """Affiche un fichier PNG ou HTML selon son extension (bytes mis en cache)."""
         if extension == "html":
-            components.html(_read_html(file_path), height=600, scrolling=True)
+            html = _load_html_cached(str(file_path))
+            if html is None:
+                st.markdown(
+                    f"<div style='border:1px dashed #ccc;border-radius:6px;padding:12px;"
+                    f"text-align:center;color:#888;font-size:0.85em'>"
+                    f"Fichier non trouvé<br><code>{file_path.name}</code></div>",
+                    unsafe_allow_html=True,
+                )
+            else:
+                components.html(html, height=600, scrolling=True)
         else:
-            st.image(str(file_path), use_container_width=True)
+            data = _load_image_bytes(str(file_path))
+            if data is None:
+                st.markdown(
+                    f"<div style='border:1px dashed #ccc;border-radius:6px;padding:12px;"
+                    f"text-align:center;color:#888;font-size:0.85em'>"
+                    f"Fichier non trouvé<br><code>{file_path.name}</code></div>",
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.image(data, use_container_width=True)
 
     for _, row in rows.iterrows():
         titre      = str(row.get("Titre", "")).strip()
