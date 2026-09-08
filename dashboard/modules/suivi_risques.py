@@ -27,6 +27,8 @@ CANTON_EXCEL_TO_DISPLAY: dict[str, str] = {
 CANTON_DISPLAY_TO_EXCEL: dict[str, str] = {
     v: k for k, v in CANTON_EXCEL_TO_DISPLAY.items() if k != "ALL"
 }
+# Codes Excel des cantons réels (sans ALL) — utilisé pour l'affichage EPS
+_ALL_CANTON_CODES: list[str] = [k for k in CANTON_EXCEL_TO_DISPLAY if k != "ALL"]
 
 
 def _resolve_path(raw: str) -> Path:
@@ -246,13 +248,27 @@ def load_parametres_v2(picture_dir: str) -> pd.DataFrame | None:
 
 def render_suivi_risques_dynamic(
     date_debut, date_fin, picture_dir: str, archives_dir: str,
-    canton: str = "ALL",
+    canton: str | list[str] = "ALL",
 ) -> None:
     """
     Génère les onglets et sous-onglets dynamiquement depuis l'Excel :
     - Onglets principaux  = valeurs uniques de 'Libellé onglet dans Python'
     - Sous-onglets        = valeurs de 'Sous-Onglet Python' != 'N'
     """
+    # Normalise canton (peut être une liste venant du multiselect sidebar) → code Excel unique
+    if isinstance(canton, (list, tuple)):
+        non_all = [c for c in canton if str(c).upper() != "ALL"]
+        if len(non_all) == 1:
+            _canton_code = CANTON_DISPLAY_TO_EXCEL.get(
+                non_all[0], non_all[0].replace(" ", "_").upper()
+            )
+        else:
+            _canton_code = "ALL"
+    else:
+        _canton_code = CANTON_DISPLAY_TO_EXCEL.get(
+            canton, canton.replace(" ", "_").upper()
+        ) if canton and canton.upper() != "ALL" else "ALL"
+
     df             = load_parametres_v2(picture_dir)
     available_dates = get_available_dates(archives_dir)
     date_d1        = find_closest_date(available_dates, date_fin) if available_dates else None
@@ -266,15 +282,18 @@ def render_suivi_risques_dynamic(
         if not available_dates:
             st.error(f"Aucun fichier PNG dans : {archives_dir}")
         else:
-            st.info(f"Date retenue : **{date_d1 or '—'}**  |  Dates disponibles : {', '.join(available_dates[-5:])}")
+            canton_info = f"Canton : **{_canton_code}**  |  " if _canton_code != "ALL" else ""
+            st.info(f"{canton_info}Date retenue : **{date_d1 or '—'}**  |  Dates disponibles : {', '.join(available_dates[-5:])}")
 
     if df is None or not date_d1:
         return
 
-    def _build_filepath(nom_image: str, extension: str, perimetre: str) -> tuple[Path, str]:
+    def _build_filepath(nom_image: str, extension: str, perimetre: str,
+                         canton_override: str | None = None) -> tuple[Path, str]:
         """Construit le chemin du fichier selon la règle Périmètre N/Y."""
-        if perimetre == "Y" and canton and canton.upper() != "ALL":
-            prefix = f"{date_d1}_{canton}"
+        effective = canton_override if canton_override is not None else _canton_code
+        if perimetre == "Y" and effective != "ALL":
+            prefix = f"{date_d1}_{effective}"
         else:
             prefix = str(date_d1)
         filepath = archives_path / f"{prefix}_{nom_image}.{extension}"
@@ -285,9 +304,10 @@ def render_suivi_risques_dynamic(
                 return alt, alt_ext
         return filepath, extension
 
-    def _render_one(container, nom_image: str, extension: str, titre: str, perimetre: str) -> None:
+    def _render_one(container, nom_image: str, extension: str, titre: str, perimetre: str,
+                    canton_override: str | None = None) -> None:
         """Affiche un fichier dans le container donné (st ou colonne)."""
-        filepath, ext = _build_filepath(nom_image, extension, perimetre)
+        filepath, ext = _build_filepath(nom_image, extension, perimetre, canton_override)
         if titre:
             container.markdown(
                 f"<p style='font-weight:600;color:#1a1a2e;margin-bottom:4px'>{titre}</p>",
@@ -307,28 +327,64 @@ def render_suivi_risques_dynamic(
         else:
             container.image(str(filepath), use_container_width=True)
 
+    def _render_one_row(row, container=None) -> None:
+        """
+        Affiche une ligne Excel (une image).
+        Si EPS (ALL) + Périmètre=Y → affiche les 3 cantons en colonnes.
+        Sinon → affiche dans le container donné (ou st par défaut).
+        """
+        nom      = str(row["nom_image"])
+        ext      = str(row.get("extension", "png"))
+        titre    = str(row.get("titre", ""))
+        perimetre = str(row.get("perimetre", "N"))
+
+        if perimetre == "Y" and _canton_code == "ALL":
+            cols = st.columns(len(_ALL_CANTON_CODES))
+            for col, code in zip(cols, _ALL_CANTON_CODES):
+                label = CANTON_EXCEL_TO_DISPLAY.get(code, code)
+                col.markdown(
+                    f"<p style='font-weight:600;color:#4a4a8a;margin-bottom:4px'>{label}</p>",
+                    unsafe_allow_html=True,
+                )
+                _render_one(col, nom, ext, titre, perimetre, canton_override=code)
+        else:
+            target = container if container is not None else st
+            _render_one(target, nom, ext, titre, perimetre)
+
     def _render_rows(rows_df) -> None:
         """
         Affiche les images d'un groupe de lignes.
         - largeur=999 → pleine largeur, une par ligne
         - autre valeur → 2 images côte à côte par ligne
+        Pour les images Périmètre=Y avec EPS sélectionné : 3 colonnes (un par canton).
         """
         full  = rows_df[rows_df["largeur"].astype(str).str.strip() == "999"] if "largeur" in rows_df.columns else rows_df
         small = rows_df[rows_df["largeur"].astype(str).str.strip() != "999"] if "largeur" in rows_df.columns else pd.DataFrame()
 
         for _, row in full.sort_values("ordre").iterrows():
-            _render_one(st, str(row["nom_image"]), str(row.get("extension", "png")),
-                        str(row.get("titre", "")), str(row.get("perimetre", "N")))
+            _render_one_row(row)
             st.markdown("<hr style='margin:8px 0;border-color:#e0d0f0'>", unsafe_allow_html=True)
 
-        # Images compactes — 2 par ligne
-        small_rows = list(small.sort_values("ordre").iterrows())
-        for i in range(0, len(small_rows), 2):
-            cols = st.columns(2)
-            for j, (_, row) in enumerate(small_rows[i:i+2]):
-                _render_one(cols[j], str(row["nom_image"]), str(row.get("extension", "png")),
-                            str(row.get("titre", "")), str(row.get("perimetre", "N")))
-            st.markdown("<hr style='margin:8px 0;border-color:#e0d0f0'>", unsafe_allow_html=True)
+        # Images compactes — 2 par ligne (ou 1 seule si la suivante est manquante)
+        small_sorted = list(small.sort_values("ordre").iterrows())
+        i = 0
+        while i < len(small_sorted):
+            _, row = small_sorted[i]
+            perimetre = str(row.get("perimetre", "N"))
+            # EPS + Périmètre=Y : toute la largeur (3 colonnes cantons intégrées)
+            if perimetre == "Y" and _canton_code == "ALL":
+                _render_one_row(row)
+                st.markdown("<hr style='margin:8px 0;border-color:#e0d0f0'>", unsafe_allow_html=True)
+                i += 1
+            else:
+                cols = st.columns(2)
+                for j in range(2):
+                    if i + j < len(small_sorted):
+                        _, r = small_sorted[i + j]
+                        _render_one(cols[j], str(r["nom_image"]), str(r.get("extension", "png")),
+                                    str(r.get("titre", "")), str(r.get("perimetre", "N")))
+                st.markdown("<hr style='margin:8px 0;border-color:#e0d0f0'>", unsafe_allow_html=True)
+                i += 2
 
     # Onglets principaux — groupement par onglet_code, affichage par libelle_onglet
     group_col = "onglet_code" if "onglet_code" in df.columns and df["onglet_code"].str.strip().any() else "libelle_onglet"
