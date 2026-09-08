@@ -268,8 +268,8 @@ def render_suivi_risques_dynamic(
     if df is None or not date_d1:
         return
 
-    def _show_file(nom_image: str, extension: str, titre: str, perimetre: str = "N") -> None:
-        # Périmètre Y → on insère le canton entre la date et le nom de l'image
+    def _build_filepath(nom_image: str, extension: str, perimetre: str) -> tuple[Path, str]:
+        """Construit le chemin du fichier selon la règle Périmètre N/Y."""
         if perimetre == "Y" and canton and canton.upper() != "ALL":
             prefix = f"{date_d1}_{canton}"
         else:
@@ -279,25 +279,53 @@ def render_suivi_risques_dynamic(
             alt_ext = "html" if extension == "png" else "png"
             alt = archives_path / f"{prefix}_{nom_image}.{alt_ext}"
             if alt.exists():
-                filepath, extension = alt, alt_ext
+                return alt, alt_ext
+        return filepath, extension
+
+    def _render_one(container, nom_image: str, extension: str, titre: str, perimetre: str) -> None:
+        """Affiche un fichier dans le container donné (st ou colonne)."""
+        filepath, ext = _build_filepath(nom_image, extension, perimetre)
         if titre:
-            st.markdown(
+            container.markdown(
                 f"<p style='font-weight:600;color:#1a1a2e;margin-bottom:4px'>{titre}</p>",
                 unsafe_allow_html=True,
             )
         if not filepath.exists():
-            st.markdown(
+            container.markdown(
                 f"<div style='border:1px dashed #ccc;border-radius:6px;padding:12px;"
                 f"text-align:center;color:#888;font-size:0.85em'>"
                 f"Fichier non trouvé<br><code>{filepath.name}</code></div>",
                 unsafe_allow_html=True,
             )
-        elif extension == "html":
-            components.html(filepath.read_text(encoding="utf-8", errors="replace"),
-                            height=600, scrolling=True)
+        elif ext == "html":
+            with container:
+                components.html(filepath.read_text(encoding="utf-8", errors="replace"),
+                                height=600, scrolling=True)
         else:
-            st.image(str(filepath), use_container_width=True)
-        st.markdown("<hr style='margin:8px 0;border-color:#e0d0f0'>", unsafe_allow_html=True)
+            container.image(str(filepath), use_container_width=True)
+
+    def _render_rows(rows_df) -> None:
+        """
+        Affiche les images d'un groupe de lignes.
+        - largeur=999 → pleine largeur, une par ligne
+        - autre valeur → 2 images côte à côte par ligne
+        """
+        full  = rows_df[rows_df["largeur"].astype(str).str.strip() == "999"] if "largeur" in rows_df.columns else rows_df
+        small = rows_df[rows_df["largeur"].astype(str).str.strip() != "999"] if "largeur" in rows_df.columns else pd.DataFrame()
+
+        for _, row in full.sort_values("ordre").iterrows():
+            _render_one(st, str(row["nom_image"]), str(row.get("extension", "png")),
+                        str(row.get("titre", "")), str(row.get("perimetre", "N")))
+            st.markdown("<hr style='margin:8px 0;border-color:#e0d0f0'>", unsafe_allow_html=True)
+
+        # Images compactes — 2 par ligne
+        small_rows = list(small.sort_values("ordre").iterrows())
+        for i in range(0, len(small_rows), 2):
+            cols = st.columns(2)
+            for j, (_, row) in enumerate(small_rows[i:i+2]):
+                _render_one(cols[j], str(row["nom_image"]), str(row.get("extension", "png")),
+                            str(row.get("titre", "")), str(row.get("perimetre", "N")))
+            st.markdown("<hr style='margin:8px 0;border-color:#e0d0f0'>", unsafe_allow_html=True)
 
     # Onglets principaux (ordre de première apparition dans l'Excel)
     onglets = list(dict.fromkeys(df["libelle_onglet"].tolist()))
@@ -310,16 +338,12 @@ def render_suivi_risques_dynamic(
                     if s not in ("N", "nan", "")]
 
             if not sous:
-                for _, row in onglet_df.iterrows():
-                    _show_file(str(row["nom_image"]), str(row.get("extension", "png")),
-                               str(row.get("titre", "")), str(row.get("perimetre", "N")))
+                _render_rows(onglet_df)
             else:
                 sub_tabs = st.tabs(sous)
                 for sub_tab, sous_label in zip(sub_tabs, sous):
                     with sub_tab:
-                        for _, row in onglet_df[onglet_df["sous_onglet"] == sous_label].iterrows():
-                            _show_file(str(row["nom_image"]), str(row.get("extension", "png")),
-                                       str(row.get("titre", "")), str(row.get("perimetre", "N")))
+                        _render_rows(onglet_df[onglet_df["sous_onglet"] == sous_label])
 
 
 # ── Gestion des dates disponibles dans ARCHIVES ───────────────────────────────
