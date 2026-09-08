@@ -31,6 +31,22 @@ CANTON_DISPLAY_TO_EXCEL: dict[str, str] = {
 _ALL_CANTON_CODES: list[str] = [k for k in CANTON_EXCEL_TO_DISPLAY if k != "ALL"]
 
 
+def _read_html(filepath: Path) -> str:
+    """Lit un fichier HTML en gérant l'encodage Windows (cp1252) si nécessaire."""
+    for enc in ("utf-8", "cp1252", "latin-1"):
+        try:
+            text = filepath.read_text(encoding=enc)
+            break
+        except UnicodeDecodeError:
+            continue
+    else:
+        text = filepath.read_text(encoding="utf-8", errors="replace")
+    # Injecte un meta charset UTF-8 si absent pour éviter les problèmes d'affichage navigateur
+    if "<meta" not in text[:500].lower() or "charset" not in text[:500].lower():
+        text = '<meta charset="utf-8">\n' + text
+    return text
+
+
 def _resolve_path(raw: str) -> Path:
     """Convertit un chemin Windows (UNC ou lettre de lecteur) en Path utilisable sous WSL/Linux."""
     raw = raw.strip()
@@ -322,8 +338,7 @@ def render_suivi_risques_dynamic(
             )
         elif ext == "html":
             with container:
-                components.html(filepath.read_text(encoding="utf-8", errors="replace"),
-                                height=600, scrolling=True)
+                components.html(_read_html(filepath), height=600, scrolling=True)
         else:
             container.image(str(filepath), use_container_width=True)
 
@@ -616,8 +631,7 @@ def render_suivi_risques_canton(
             )
             return
         if extension == "html":
-            html_content = file_path.read_text(encoding="utf-8", errors="replace")
-            components.html(html_content, height=600, scrolling=True)
+            components.html(_read_html(file_path), height=600, scrolling=True)
         else:
             st.image(str(file_path), use_container_width=True)
 
