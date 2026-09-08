@@ -151,6 +151,11 @@ wsl
 ```
 
 > **Note :** l'accès réseau dépend de l'authentification Windows (compte AD / VPN). Si WSL démarre hors réseau, le montage échouera silencieusement — le dashboard détecte ce cas et affiche un avertissement dans l'onglet Admin > Données.
+>
+> **Si `sudo mount -a` échoue au démarrage** : c'est que WSL a démarré avant que Windows soit connecté au réseau d'entreprise. Attendez que Windows soit bien connecté (session AD active, VPN si nécessaire), puis relancez simplement :
+> ```bash
+> sudo mount -a
+> ```
 
 ---
 
