@@ -196,7 +196,9 @@ def load_parametres_v2(picture_dir: str) -> pd.DataFrame | None:
             cu = c.upper()
             if cu in ("NAN", ""):
                 continue
-            if "LIBEL" in cu and "SOUS" not in cu:
+            if cu == "ONGLET PYTHON" or (cu.startswith("ONGLET") and "LIBEL" not in cu and "SOUS" not in cu):
+                col_map["onglet_code"] = c
+            elif "LIBEL" in cu and "SOUS" not in cu:
                 col_map["libelle_onglet"] = c
             elif "SOUS" in cu and "ONGLET" in cu:
                 col_map["sous_onglet"] = c
@@ -220,6 +222,7 @@ def load_parametres_v2(picture_dir: str) -> pd.DataFrame | None:
         df = df[[c for c in col_map if c in df.columns]]
         df = df.dropna(subset=["nom_image", "libelle_onglet"])
 
+        df["onglet_code"]    = df["onglet_code"].astype(str).str.strip() if "onglet_code" in df.columns else ""
         df["libelle_onglet"] = df["libelle_onglet"].astype(str).str.strip()
         df["nom_image"]      = df["nom_image"].astype(str).str.strip()
         df["sous_onglet"]    = df["sous_onglet"].astype(str).str.strip() if "sous_onglet" in df.columns else "N"
@@ -327,13 +330,19 @@ def render_suivi_risques_dynamic(
                             str(row.get("titre", "")), str(row.get("perimetre", "N")))
             st.markdown("<hr style='margin:8px 0;border-color:#e0d0f0'>", unsafe_allow_html=True)
 
-    # Onglets principaux (ordre de première apparition dans l'Excel)
-    onglets = list(dict.fromkeys(df["libelle_onglet"].tolist()))
-    tabs    = st.tabs(onglets)
+    # Onglets principaux — groupement par onglet_code, affichage par libelle_onglet
+    group_col = "onglet_code" if "onglet_code" in df.columns and df["onglet_code"].str.strip().any() else "libelle_onglet"
+    seen: dict[str, str] = {}  # code → libellé (ordre de première apparition)
+    for _, row in df.iterrows():
+        code = str(row[group_col]).strip()
+        if code and code not in seen:
+            seen[code] = str(row["libelle_onglet"]).strip()
 
-    for tab, onglet_label in zip(tabs, onglets):
+    tabs = st.tabs(list(seen.values()))
+
+    for tab, (code, label) in zip(tabs, seen.items()):
         with tab:
-            onglet_df = df[df["libelle_onglet"] == onglet_label].sort_values("ordre")
+            onglet_df = df[df[group_col] == code].sort_values("ordre")
             sous = [s for s in dict.fromkeys(onglet_df["sous_onglet"].tolist())
                     if s not in ("N", "nan", "")]
 
