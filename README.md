@@ -14,19 +14,45 @@ Application Streamlit de suivi des risques financiers pour la Direction des Risq
 | **Data** | Tableau brut des données filtrées |
 | **Rapport** | Synthèse exportable |
 
-### Suivi des risques — structure des onglets
-- **Suivi Marché** → `RISQUE=SDG`, `CANTON=ALL`
-- **Risque SDG** → `RISQUE=VALO` (par canton) + sous-onglet *Fiabilité de la valorisation* (`RISQUE=FIAB_VALO`)
-- **KPI** → `RISQUE=DEFAUT` avec 5 sous-onglets : Cotation du risque, Niveau de risque, Indicateur de risque, Gestion directe, Définition des indicateurs
+### Suivi des risques — structure des onglets dynamiques
+
+Les onglets et sous-onglets sont générés automatiquement depuis le fichier Excel
+`PICTURE/Liste des images pour Streamlit.xlsm` (feuille Parametres).
+
+| Colonne Excel | Rôle |
+|---|---|
+| **Onglet Python** | Code interne identifiant l'onglet principal |
+| **Libellé** | Nom affiché dans l'onglet Streamlit |
+| **Sous-Onglet Python** | Nom du sous-onglet (`N` = pas de sous-onglet) |
+| **Périmètre** | `Y` = canton dans le nom de fichier, `N` = date seule |
+| **Nom de l'image** | Partie fixe du nom de fichier |
+| **Titre Graphique** | Titre affiché au-dessus de l'image |
+| **Ordre** | Ordre d'affichage dans l'onglet |
+| **extension** | `png` ou `html` |
+| **largeur** | `999` = pleine largeur, autre valeur = 2 images côte à côte |
 
 ### Convention de nommage des fichiers images
+
+| Périmètre | Format du nom de fichier |
+|---|---|
+| `N` | `{YYYYMMDD}_{Nom_image}.{ext}` |
+| `Y` | `{YYYYMMDD}_{CANTON}_{Nom_image}.{ext}` |
+
+Exemples :
 ```
-{YYYYMMDD}_{CANTON}_{RISQUE}_{ONGLET}.png  (ou .html)
-Exemple : 20251231_CGP_AG_DEFAUT_Cotation du risque.png
+20260630_SDG_Suivi Marché.png          (Périmètre N)
+20260630_CGP_AG_VALO_GRAPH1.png        (Périmètre Y, canton CGP AG)
 ```
-Le fichier Excel `Création des images.xlsm` (dans le dossier PICTURE) pilote l'affichage :
-- Colonnes clés : `RISQUE`, `CANTON`, `Onglet`, `Nom de l'image`, `Titre Graphique`, `Ordre`, `extension`
-- Les fichiers `.html` sont affichés via iframe, les `.png` comme images
+
+### Affichage selon le filtre canton
+
+| Filtre sidebar | Comportement |
+|---|---|
+| **Canton unique** (CGP AG, CGP RS, BPCEM AG) | Image centrée sur les 2/3 de la page |
+| **EPS** (tous les cantons) | 3 colonnes côte à côte : CGP AG \| CGP RS \| BPCEM AG |
+
+Les fichiers `.html` sont affichés en iframe (hauteur 600 px), les `.png` comme images.
+Les images et fichiers HTML sont mis en cache mémoire 5 minutes pour limiter les lectures réseau.
 
 ---
 
@@ -35,8 +61,8 @@ Le fichier Excel `Création des images.xlsm` (dans le dossier PICTURE) pilote l'
 | Source | Chemin (réseau) | Usage |
 |---|---|---|
 | Données portefeuille | `/mnt/risques/.../` fichiers JSON | Tous les onglets sauf Suivi des risques |
-| Excel paramètres images | `PICTURE/Création des images.xlsm` | Mapping images Suivi des risques |
-| Images ARCHIVES | `PICTURE/ARCHIVES/{date}_{canton}_{risque}_{onglet}.png` | Graphiques Suivi des risques |
+| Excel paramètres images | `PICTURE/Liste des images pour Streamlit.xlsm` | Structure onglets/sous-onglets Suivi des risques |
+| Images | `PICTURE/RAPPORT/{date}_{canton}_{nom}.png` | Graphiques Suivi des risques |
 
 Les chemins se configurent dans l'onglet **Admin > Paramètres**.
 
