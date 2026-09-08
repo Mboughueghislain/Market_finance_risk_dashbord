@@ -367,6 +367,10 @@ def render_suivi_risques_dynamic(
                     unsafe_allow_html=True,
                 )
                 _render_one(col, nom, ext, titre, perimetre, canton_override=code)
+        elif container is None and _canton_code != "ALL":
+            # Canton unique, pleine largeur → 2/3 de la page
+            col, _ = st.columns([2, 1])
+            _render_one(col, nom, ext, titre, perimetre)
         else:
             target = container if container is not None else st
             _render_one(target, nom, ext, titre, perimetre)
