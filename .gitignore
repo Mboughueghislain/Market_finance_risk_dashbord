@@ -214,3 +214,6 @@ venv/
 .env
 __pycache__/
 *.pyc
+
+# Config locale machine (chemins PICTURE/ARCHIVES propres à chaque poste)
+data/app_config.local.json

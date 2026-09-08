@@ -9,7 +9,11 @@ import json
 import bcrypt
 from pathlib import Path
 
-CONFIG_PATH = Path(__file__).parent / "app_config.json"
+CONFIG_PATH       = Path(__file__).parent / "app_config.json"
+LOCAL_CONFIG_PATH = Path(__file__).parent / "app_config.local.json"
+
+# Clés machine-spécifiques → stockées dans app_config.local.json (gitignorée)
+_LOCAL_KEYS = {"suivi_risques_picture_dir", "suivi_risques_archives_dir", "source_dir"}
 
 ROLES = ["Lecteur", "Analyste", "Admin"]
 
@@ -48,27 +52,51 @@ DEFAULTS: dict = {
 
 
 def load_config() -> dict:
-    """Charge la config depuis le fichier JSON, complète avec les valeurs par défaut."""
+    """
+    Charge la config avec priorité croissante :
+      1. DEFAULTS (valeurs codées en dur)
+      2. app_config.json (partagé via git)
+      3. app_config.local.json (propre à cette machine, gitignorée)
+    """
+    merged = DEFAULTS.copy()
+
     if CONFIG_PATH.exists():
         try:
             with open(CONFIG_PATH, encoding="utf-8") as f:
                 data = json.load(f)
-            # Fusion : les valeurs du fichier écrasent les defaults,
-            # sauf pour 'users' qui doit être présent dans le fichier pour être utilisé.
-            merged = {**DEFAULTS, **data}
+            merged.update(data)
             if "users" not in data:
                 merged["users"] = DEFAULTS["users"]
-            return merged
         except Exception:
             pass
-    return DEFAULTS.copy()
+
+    # La config locale écrase les chemins machine-spécifiques
+    if LOCAL_CONFIG_PATH.exists():
+        try:
+            with open(LOCAL_CONFIG_PATH, encoding="utf-8") as f:
+                merged.update(json.load(f))
+        except Exception:
+            pass
+
+    return merged
 
 
 def save_config(cfg: dict) -> None:
-    """Sauvegarde la config dans le fichier JSON."""
+    """
+    Sauvegarde la config en deux fichiers :
+    - Clés machine-spécifiques (chemins) → app_config.local.json (gitignorée)
+    - Reste (users, params métier…)       → app_config.json (partagé via git)
+    """
+    local_cfg  = {k: v for k, v in cfg.items() if k in _LOCAL_KEYS}
+    shared_cfg = {k: v for k, v in cfg.items() if k not in _LOCAL_KEYS}
+
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, indent=2, ensure_ascii=False)
+        json.dump(shared_cfg, f, indent=2, ensure_ascii=False)
+
+    if local_cfg:
+        with open(LOCAL_CONFIG_PATH, "w", encoding="utf-8") as f:
+            json.dump(local_cfg, f, indent=2, ensure_ascii=False)
 
 
 # ── Helpers utilisateurs ──────────────────────────────────────────────────────
