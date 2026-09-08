@@ -56,6 +56,8 @@ def _resolve_path(raw: str) -> Path:
 # ── Chargement de la feuille Parametres ───────────────────────────────────────
 
 EXCEL_FALLBACKS = [
+    "Liste des images pour Streamlit.xlsm",
+    "Liste des images pour Streamlit.xlsx",
     "Création des images.xlsm",
     "Creation des images.xlsm",
     "Création des images.xlsx",
