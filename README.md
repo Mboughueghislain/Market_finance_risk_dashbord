@@ -38,7 +38,37 @@ Le fichier Excel `Création des images.xlsm` (dans le dossier PICTURE) pilote l'
 | Excel paramètres images | `PICTURE/Création des images.xlsm` | Mapping images Suivi des risques |
 | Images ARCHIVES | `PICTURE/ARCHIVES/{date}_{canton}_{risque}_{onglet}.png` | Graphiques Suivi des risques |
 
-Les chemins se configurent dans l'onglet **Admin > Données**.
+Les chemins se configurent dans l'onglet **Admin > Paramètres**.
+
+---
+
+## Configuration des chemins par poste
+
+Chaque PC peut avoir ses propres chemins (lecteur réseau mappé différemment selon la machine) sans créer de conflit au `git pull`.
+
+### Comment ça fonctionne
+
+- `data/app_config.json` — configuration partagée (utilisateurs, paramètres métier) — **versionnée dans git**
+- `data/app_config.local.json` — chemins propres à cette machine — **ignorée par git**
+
+Au démarrage, l'application fusionne les deux fichiers : le fichier local a la priorité sur le fichier partagé pour les chemins.
+
+### Configurer les chemins sur un nouveau poste
+
+1. Lancer l'application (`streamlit run home.py`)
+2. Se connecter en tant qu'Admin
+3. Aller dans **Admin > Paramètres**
+4. Renseigner les chemins **PICTURE** et **ARCHIVES** corrects pour ce poste
+5. Sauvegarder — les chemins sont écrits dans `app_config.local.json` (jamais écrasés par `git pull`)
+
+### Exemple de chemins WSL selon le lecteur réseau mappé
+
+| Lecteur Windows | Chemin WSL à saisir |
+|---|---|
+| `H:\Direction des Risques\...\PICTURE` | `/mnt/h/Direction des Risques/4. Risques Financiers/00-0-REPORTING/00 - PROD RRF/Suivi Risques/PICTURE` |
+| `Z:\4. Risques Financiers\...\PICTURE` | `/mnt/z/4. Risques Financiers/00-0-REPORTING/00 - PROD RRF/Suivi Risques/PICTURE` |
+
+> Le chemin UNC `\\sv61file0024\Bureautique\...` fonctionne aussi si le partage réseau est accessible directement depuis WSL.
 
 ---
 
