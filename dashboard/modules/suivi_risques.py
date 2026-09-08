@@ -10,6 +10,7 @@ Source de données :
 from __future__ import annotations
 
 import re
+import unicodedata
 from pathlib import Path, PureWindowsPath
 
 import pandas as pd
@@ -208,10 +209,14 @@ def load_parametres_v2(picture_dir: str) -> pd.DataFrame | None:
 
         df = pd.read_excel(excel_path, header=0, engine="openpyxl")
 
+        def _norm(s: str) -> str:
+            """Supprime les accents et met en majuscules pour comparaison robuste."""
+            return unicodedata.normalize("NFD", s).encode("ascii", "ignore").decode().upper()
+
         col_map: dict[str, str] = {}
         for col in df.columns:
             c  = str(col).strip()
-            cu = c.upper()
+            cu = _norm(c)
             if cu in ("NAN", ""):
                 continue
             if cu == "ONGLET PYTHON" or (cu.startswith("ONGLET") and "LIBEL" not in cu and "SOUS" not in cu):
