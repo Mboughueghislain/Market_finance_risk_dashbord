@@ -114,6 +114,13 @@ Ou avec accès réseau exposé :
 streamlit run home.py --server.address 0.0.0.0 --server.headless true
 ```
 
+> **Note :** le venv ne s'active **pas automatiquement** — il faut lancer `source venv/bin/activate` à chaque nouveau terminal.
+> Pour éviter d'y penser, vous pouvez ajouter un alias dans `~/.bashrc` :
+> ```bash
+> alias riskdash='cd /home/ghislain/risk_dashboard && source venv/bin/activate && cd dashboard && streamlit run home.py'
+> ```
+> Ensuite un simple `riskdash` dans le terminal lance tout.
+
 ### Windows (CMD)
 
 ```cmd
