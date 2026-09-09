@@ -345,8 +345,16 @@ def render_suivi_risques_dynamic(
                 return alt, alt_ext
         return filepath, extension
 
+    def _largeur_to_pct(row) -> int:
+        """Convertit la valeur Excel 'largeur' en pourcentage de page (1-100)."""
+        try:
+            v = int(float(str(row.get("largeur", 100)).strip()))
+        except (ValueError, TypeError):
+            return 100
+        return 100 if v >= 999 else max(1, min(100, v))
+
     def _render_one(container, nom_image: str, extension: str, titre: str, perimetre: str,
-                    canton_override: str | None = None) -> None:
+                    canton_override: str | None = None, html_height: int = 600) -> None:
         """Affiche un fichier dans le container donné (st ou colonne)."""
         filepath, ext = _build_filepath(nom_image, extension, perimetre, canton_override)
         if titre:
@@ -365,7 +373,7 @@ def render_suivi_risques_dynamic(
                 )
             else:
                 with container:
-                    components.html(html, height=600, scrolling=True)
+                    components.html(html, height=html_height, scrolling=True)
         else:
             data = _load_image_bytes(str(filepath))
             if data is None:
@@ -378,75 +386,48 @@ def render_suivi_risques_dynamic(
             else:
                 container.image(data, use_container_width=True)
 
-    def _render_one_row(row, container=None) -> None:
+    def _render_one_row(row) -> None:
         """
-        Affiche une ligne Excel (une image).
-        Si EPS (ALL) + Périmètre=Y → affiche les 3 cantons en colonnes.
-        Sinon → affiche dans le container donné (ou st par défaut).
+        Affiche une image avec le layout dicté par la colonne 'largeur' de l'Excel.
+        - largeur = pourcentage de la page (1-100), 999 = 100%
+        - HTML : hauteur iframe = largeur * 6 px
+        - EPS (multi-cantons) : espace 'largeur%' réparti entre les cantons sélectionnés
         """
-        nom      = str(row["nom_image"])
-        ext      = str(row.get("extension", "png"))
-        titre    = str(row.get("titre", ""))
+        nom       = str(row["nom_image"])
+        ext       = str(row.get("extension", "png"))
+        titre     = str(row.get("titre", ""))
         perimetre = str(row.get("perimetre", "N"))
+        pct       = _largeur_to_pct(row)
+        h_html    = max(200, pct * 6)
 
         if perimetre == "Y" and _canton_code == "ALL":
-            cols = st.columns(len(_selected_codes))
-            for col, code in zip(cols, _selected_codes):
+            n = len(_selected_codes)
+            if pct >= 100:
+                canton_cols = st.columns(n)
+            else:
+                margin    = (100 - pct) / 2
+                canton_w  = pct / n
+                all_cols  = st.columns([margin] + [canton_w] * n + [margin])
+                canton_cols = all_cols[1:-1]
+            for col, code in zip(canton_cols, _selected_codes):
                 label = CANTON_EXCEL_TO_DISPLAY.get(code, code)
                 col.markdown(
                     f"<p style='font-weight:600;color:#4a4a8a;margin-bottom:4px'>{label}</p>",
                     unsafe_allow_html=True,
                 )
-                _render_one(col, nom, ext, titre, perimetre, canton_override=code)
-        elif container is None and _canton_code != "ALL":
-            # Canton unique, pleine largeur → 2/3 centrés
-            _, col, _ = st.columns([11, 18, 11])
-            _render_one(col, nom, ext, titre, perimetre)
+                _render_one(col, nom, ext, titre, perimetre, canton_override=code, html_height=h_html)
+        elif _canton_code != "ALL" and pct < 100:
+            margin = (100 - pct) / 2
+            _, col, _ = st.columns([margin, pct, margin])
+            _render_one(col, nom, ext, titre, perimetre, html_height=h_html)
         else:
-            target = container if container is not None else st
-            _render_one(target, nom, ext, titre, perimetre)
+            _render_one(st, nom, ext, titre, perimetre, html_height=h_html)
 
     def _render_rows(rows_df) -> None:
-        """
-        Affiche les images d'un groupe de lignes.
-        - largeur=999 → pleine largeur, une par ligne
-        - autre valeur → 2 images côte à côte par ligne
-        Pour les images Périmètre=Y avec EPS sélectionné : 3 colonnes (un par canton).
-        """
-        full  = rows_df[rows_df["largeur"].astype(str).str.strip() == "999"] if "largeur" in rows_df.columns else rows_df
-        small = rows_df[rows_df["largeur"].astype(str).str.strip() != "999"] if "largeur" in rows_df.columns else pd.DataFrame()
-
-        for _, row in full.sort_values("ordre").iterrows():
+        """Affiche toutes les images d'un groupe, chacune sur sa propre ligne."""
+        for _, row in rows_df.sort_values("ordre").iterrows():
             _render_one_row(row)
             st.markdown("<hr style='margin:8px 0;border-color:#e0d0f0'>", unsafe_allow_html=True)
-
-        # Images compactes — 2 par ligne (ou 1 seule si la suivante est manquante)
-        small_sorted = list(small.sort_values("ordre").iterrows())
-        i = 0
-        while i < len(small_sorted):
-            _, row = small_sorted[i]
-            perimetre = str(row.get("perimetre", "N"))
-            # EPS + Périmètre=Y : toute la largeur (3 colonnes cantons intégrées)
-            if perimetre == "Y" and _canton_code == "ALL":
-                _render_one_row(row)
-                st.markdown("<hr style='margin:8px 0;border-color:#e0d0f0'>", unsafe_allow_html=True)
-                i += 1
-            elif i + 1 >= len(small_sorted):
-                # Image seule (non pairée) → centrée à 50%
-                _, col, _ = st.columns([3, 14, 3])
-                _render_one(col, str(row["nom_image"]), str(row.get("extension", "png")),
-                            str(row.get("titre", "")), perimetre)
-                st.markdown("<hr style='margin:8px 0;border-color:#e0d0f0'>", unsafe_allow_html=True)
-                i += 1
-            else:
-                cols = st.columns(2)
-                for j in range(2):
-                    if i + j < len(small_sorted):
-                        _, r = small_sorted[i + j]
-                        _render_one(cols[j], str(r["nom_image"]), str(r.get("extension", "png")),
-                                    str(r.get("titre", "")), str(r.get("perimetre", "N")))
-                st.markdown("<hr style='margin:8px 0;border-color:#e0d0f0'>", unsafe_allow_html=True)
-                i += 2
 
     # Onglets principaux — groupement par onglet_code, affichage par libelle_onglet
     group_col = "onglet_code" if "onglet_code" in df.columns and df["onglet_code"].str.strip().any() else "libelle_onglet"
