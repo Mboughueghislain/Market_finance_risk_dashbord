@@ -292,19 +292,23 @@ def render_suivi_risques_dynamic(
     - Onglets principaux  = valeurs uniques de 'Libellé onglet dans Python'
     - Sous-onglets        = valeurs de 'Sous-Onglet Python' != 'N'
     """
-    # Normalise canton (peut être une liste venant du multiselect sidebar) → code Excel unique
+    # Normalise canton (peut être une liste venant du multiselect sidebar)
+    # _selected_codes : codes Excel réellement sélectionnés (sans ALL)
+    # _canton_code    : code unique si 1 canton, "ALL" si plusieurs
+    def _to_code(c: str) -> str:
+        return CANTON_DISPLAY_TO_EXCEL.get(c, c.replace(" ", "_").upper())
+
     if isinstance(canton, (list, tuple)):
         non_all = [c for c in canton if str(c).upper() != "ALL"]
-        if len(non_all) == 1:
-            _canton_code = CANTON_DISPLAY_TO_EXCEL.get(
-                non_all[0], non_all[0].replace(" ", "_").upper()
-            )
-        else:
-            _canton_code = "ALL"
+        _selected_codes = [_to_code(c) for c in non_all] if non_all else _ALL_CANTON_CODES
+        _canton_code    = _selected_codes[0] if len(_selected_codes) == 1 else "ALL"
     else:
-        _canton_code = CANTON_DISPLAY_TO_EXCEL.get(
-            canton, canton.replace(" ", "_").upper()
-        ) if canton and canton.upper() != "ALL" else "ALL"
+        if not canton or canton.upper() == "ALL":
+            _selected_codes = _ALL_CANTON_CODES
+            _canton_code    = "ALL"
+        else:
+            _canton_code    = _to_code(canton)
+            _selected_codes = [_canton_code]
 
     df             = load_parametres_v2(picture_dir)
     available_dates = get_available_dates(archives_dir)
@@ -319,7 +323,7 @@ def render_suivi_risques_dynamic(
         if not available_dates:
             st.error(f"Aucun fichier PNG dans : {archives_dir}")
         else:
-            canton_info = f"Canton : **{_canton_code}**  |  " if _canton_code != "ALL" else ""
+            canton_info = f"Cantons : **{', '.join(_selected_codes)}**  |  " if _canton_code != "ALL" else f"Cantons : **{', '.join(_selected_codes)}**  |  "
             st.info(f"{canton_info}Date retenue : **{date_d1 or '—'}**  |  Dates disponibles : {', '.join(available_dates[-5:])}")
 
     if df is None or not date_d1:
@@ -386,8 +390,8 @@ def render_suivi_risques_dynamic(
         perimetre = str(row.get("perimetre", "N"))
 
         if perimetre == "Y" and _canton_code == "ALL":
-            cols = st.columns(len(_ALL_CANTON_CODES))
-            for col, code in zip(cols, _ALL_CANTON_CODES):
+            cols = st.columns(len(_selected_codes))
+            for col, code in zip(cols, _selected_codes):
                 label = CANTON_EXCEL_TO_DISPLAY.get(code, code)
                 col.markdown(
                     f"<p style='font-weight:600;color:#4a4a8a;margin-bottom:4px'>{label}</p>",
