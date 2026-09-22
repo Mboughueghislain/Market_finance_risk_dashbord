@@ -355,7 +355,6 @@ if not _already_auth:
         [data-testid="stForm"] .stTextInput > div > div {
             background-color: transparent !important;
             border: none !important;
-            box-shadow: none !important;
         }
         /* Texte saisi — fond via le wrapper BaseUI, pas l'input lui-même */
         [data-testid="stForm"] input,
