@@ -765,6 +765,111 @@ def render_portefeuille_tab(df_selection: pd.DataFrame, use_transpa: bool, date_
             , config={"displayModeBar": "hover"})
 
     # ======================================================
+    # TABLEAU
+    # ======================================================
+
+    # Colonnes de dimensions (classe / sous-classe) selon le niveau d'analyse
+    if niveau_analyse == "Sous-classe d'actifs":
+        # On affiche à la fois Classe d'actifs et Sous-classe d'actifs
+        dim_cols = [
+            (CLASS_COL, "Classe d'actifs"),
+            (SUBCLASS_COL, "Sous-classe d'actifs"),
+        ]
+    else:
+        # Vue agrégée uniquement par classe
+        dim_cols = [
+            (CLASS_COL, "Classe d'actifs"),
+        ]
+
+    # Colonnes de métriques
+    metric_cols = [
+        ("VM_FIN", "VM (M€)"),
+        ("Delta_VM", "Δ VM (M€)"),
+        ("Delta_VM_pct", "Δ VM (%)"),
+        ("Tendance", "Tendance"),
+        ("Alloc (%)", "Alloc (%)"),
+        ("Δ Alloc (%)", "Δ Alloc (%)"),
+    ]
+    if has_VNC:
+        metric_cols += [
+            ("Delta_VNC_pct", "Effet Investissement (%)"),
+            ("effet_marche", "Effet Marché (%)"),
+        ]
+
+    cols = dim_cols + metric_cols
+
+    view = sort_portefeuille_pdf(view)
+ 
+    # On ne garde que les colonnes qui existent dans view, puis on renomme
+    aff = view[[c for c, _ in cols if c in view.columns]].rename(columns=dict(cols))
+
+    # Compression des labels de classe dans le tableau principal (effet "groupé")
+    if "Classe d'actifs" in aff.columns and "Sous-classe d'actifs" in aff.columns:
+        aff = compress_group_labels(aff, "Classe d'actifs")
+        mask_sub = aff["Sous-classe d'actifs"].astype(str).str.strip().ne("")
+        aff.loc[mask_sub, "Sous-classe d'actifs"] = (
+            aff.loc[mask_sub, "Sous-classe d'actifs"]
+            .astype(str)
+            .map(lambda x: f"   {x}" if x.strip() != "" else x)
+        )
+
+    # Formats d'affichage
+    fmt_map = {}
+    if "VM (M€)" in aff.columns:
+        fmt_map["VM (M€)"] = fmt_meur
+    if "Alloc (%)" in aff.columns:
+        fmt_map["Alloc (%)"] = fmt_pct_no_sign
+    if "Δ Alloc (%)" in aff.columns:
+        fmt_map["Δ Alloc (%)"] = fmt_pct_no_sign
+    if "Δ VM (M€)" in aff.columns:
+        fmt_map["Δ VM (M€)"] = fmt_delta_meur
+    if "Δ VM (%)" in aff.columns:
+        fmt_map["Δ VM (%)"] = fmt_pct
+    if "Effet Investissement (%)" in aff.columns:
+        fmt_map["Effet Investissement (%)"] = fmt_pct
+    if "Effet Marché (%)" in aff.columns:
+        fmt_map["Effet Marché (%)"] = fmt_pct
+
+
+    styler = apply_common_table_styles(aff, fmt_map=fmt_map)
+
+    # Stockage pour l'onglet Rapport
+    from modules.rapport_export import fig_to_png_bytes_cached
+    st.session_state["rapport_portefeuille"] = {
+        "fig_pie":     fig_pie,
+        "fig_bar":     fig_bar,
+        "fig_pie_png": fig_to_png_bytes_cached(fig_pie),
+        "fig_bar_png": fig_to_png_bytes_cached(fig_bar),
+        "table":       aff,
+    }
+
+    st.markdown(
+        """
+        <style>
+        div[data-testid="stDataFrame"] div[role="columnheader"] {
+            background-color: #714A80 !important;
+            color: white !important;
+            font-weight: bold !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    render_static_dataframe(styler)
+
+    # ======================================================
+    # EXPORT EXCEL
+    # ======================================================
+    excel_bytes = df_to_excel_bytes(aff, sheet_name="Données_PF")
+    st.download_button(
+        label="📥Télécharger en Excel",
+        data=excel_bytes,
+        file_name="Tableau_portefeuille.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+    # ======================================================
     # ANALYSE OPCVM
     # ======================================================
     _has_subclass = SUBCLASS_COL in df_filtre.columns and "VM_INIT" in df_filtre.columns
@@ -883,111 +988,6 @@ def render_portefeuille_tab(df_selection: pd.DataFrame, use_transpa: bool, date_
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key="pf_dl_opc",
             )
-
-    # ======================================================
-    # TABLEAU
-    # ======================================================
-
-    # Colonnes de dimensions (classe / sous-classe) selon le niveau d'analyse
-    if niveau_analyse == "Sous-classe d'actifs":
-        # On affiche à la fois Classe d'actifs et Sous-classe d'actifs
-        dim_cols = [
-            (CLASS_COL, "Classe d'actifs"),
-            (SUBCLASS_COL, "Sous-classe d'actifs"),
-        ]
-    else:
-        # Vue agrégée uniquement par classe
-        dim_cols = [
-            (CLASS_COL, "Classe d'actifs"),
-        ]
-
-    # Colonnes de métriques
-    metric_cols = [
-        ("VM_FIN", "VM (M€)"),
-        ("Delta_VM", "Δ VM (M€)"),
-        ("Delta_VM_pct", "Δ VM (%)"),
-        ("Tendance", "Tendance"),
-        ("Alloc (%)", "Alloc (%)"),
-        ("Δ Alloc (%)", "Δ Alloc (%)"),
-    ]
-    if has_VNC:
-        metric_cols += [
-            ("Delta_VNC_pct", "Effet Investissement (%)"),
-            ("effet_marche", "Effet Marché (%)"),
-        ]
-
-    cols = dim_cols + metric_cols
-
-    view = sort_portefeuille_pdf(view)
- 
-    # On ne garde que les colonnes qui existent dans view, puis on renomme
-    aff = view[[c for c, _ in cols if c in view.columns]].rename(columns=dict(cols))
-
-    # Compression des labels de classe dans le tableau principal (effet "groupé")
-    if "Classe d'actifs" in aff.columns and "Sous-classe d'actifs" in aff.columns:
-        aff = compress_group_labels(aff, "Classe d'actifs")
-        mask_sub = aff["Sous-classe d'actifs"].astype(str).str.strip().ne("")
-        aff.loc[mask_sub, "Sous-classe d'actifs"] = (
-            aff.loc[mask_sub, "Sous-classe d'actifs"]
-            .astype(str)
-            .map(lambda x: f"   {x}" if x.strip() != "" else x)
-        )
-
-    # Formats d'affichage
-    fmt_map = {}
-    if "VM (M€)" in aff.columns:
-        fmt_map["VM (M€)"] = fmt_meur
-    if "Alloc (%)" in aff.columns:
-        fmt_map["Alloc (%)"] = fmt_pct_no_sign
-    if "Δ Alloc (%)" in aff.columns:
-        fmt_map["Δ Alloc (%)"] = fmt_pct_no_sign
-    if "Δ VM (M€)" in aff.columns:
-        fmt_map["Δ VM (M€)"] = fmt_delta_meur
-    if "Δ VM (%)" in aff.columns:
-        fmt_map["Δ VM (%)"] = fmt_pct
-    if "Effet Investissement (%)" in aff.columns:
-        fmt_map["Effet Investissement (%)"] = fmt_pct
-    if "Effet Marché (%)" in aff.columns:
-        fmt_map["Effet Marché (%)"] = fmt_pct
-
-
-    styler = apply_common_table_styles(aff, fmt_map=fmt_map)
-
-    # Stockage pour l'onglet Rapport
-    from modules.rapport_export import fig_to_png_bytes_cached
-    st.session_state["rapport_portefeuille"] = {
-        "fig_pie":     fig_pie,
-        "fig_bar":     fig_bar,
-        "fig_pie_png": fig_to_png_bytes_cached(fig_pie),
-        "fig_bar_png": fig_to_png_bytes_cached(fig_bar),
-        "table":       aff,
-    }
-
-    st.markdown(
-        """
-        <style>
-        div[data-testid="stDataFrame"] div[role="columnheader"] {
-            background-color: #714A80 !important;
-            color: white !important;
-            font-weight: bold !important;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    render_static_dataframe(styler)
-
-    # ======================================================
-    # EXPORT EXCEL
-    # ======================================================
-    excel_bytes = df_to_excel_bytes(aff, sheet_name="Données_PF")
-    st.download_button(
-        label="📥Télécharger en Excel",
-        data=excel_bytes,
-        file_name="Tableau_portefeuille.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
 
     # ======================================================
     # TABLEAU DÉTAIL PAR TITRE
