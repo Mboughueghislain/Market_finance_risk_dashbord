@@ -3,6 +3,7 @@
 import numpy as np
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 
 from typing import Optional
@@ -454,6 +455,91 @@ def sort_portefeuille_pdf(df):
     return df
 
 
+def build_opcvm_split_figures(
+    df_d1: pd.DataFrame,
+    subclass_col: str = "SOUS_CLASSIF_RF",
+    vm_col: str = "VM_INIT",
+):
+    """
+    Returns (fig_donut, fig_bar) for the OPCVM vs direct instruments split at date d1.
+    fig_donut: donut showing proportion Titres directs vs OPCVM.
+    fig_bar: horizontal bar showing VM by OPCVM sub-class.
+    """
+    df = df_d1[[subclass_col, vm_col]].copy()
+    df[vm_col] = pd.to_numeric(df[vm_col], errors="coerce").fillna(0)
+    is_opc = df[subclass_col].astype(str).str.upper().str.startswith("OPCVM")
+
+    vm_opc = float(df.loc[is_opc, vm_col].sum())
+    vm_dir = float(df.loc[~is_opc, vm_col].sum())
+    vm_tot = vm_opc + vm_dir
+
+    if vm_tot <= 0:
+        return None, None
+
+    total_txt = f"{vm_tot/1e6:,.1f}".replace(",", " ").replace(".", ",")
+    fig_donut = go.Figure(go.Pie(
+        labels=["Titres directs", "OPCVM"],
+        values=[vm_dir / 1e6, vm_opc / 1e6],
+        hole=0.55,
+        marker=dict(colors=["#1f77b4", "#e377c2"]),
+        texttemplate="<b>%{percent:.1%}</b>",
+        textposition="inside",
+        hovertemplate=(
+            "<b>%{label}</b><br>"
+            "VM : %{value:,.1f} M€<br>"
+            "Part : %{percent:.1%}<extra></extra>"
+        ),
+    ))
+    fig_donut.update_layout(
+        title="Titres directs vs OPCVM",
+        height=340,
+        margin=dict(l=20, r=20, t=50, b=70),
+        legend=dict(
+            orientation="h", yanchor="top", y=-0.1, xanchor="center", x=0.5,
+            font=dict(size=11),
+        ),
+        annotations=[dict(
+            text=f"<b>{total_txt}</b><br>M€",
+            x=0.5, y=0.5, font=dict(size=15, color="#333333"), showarrow=False,
+        )],
+    )
+
+    df_opc = (
+        df[is_opc]
+        .groupby(subclass_col)[vm_col]
+        .sum()
+        .reset_index()
+        .sort_values(vm_col, ascending=True)
+    )
+    if df_opc.empty:
+        return fig_donut, None
+
+    df_opc[vm_col] = df_opc[vm_col] / 1e6
+
+    fig_bar = px.bar(
+        df_opc,
+        x=vm_col,
+        y=subclass_col,
+        orientation="h",
+        title="Détail OPCVM par sous-classe (M€)",
+        labels={vm_col: "", subclass_col: ""},
+        color_discrete_sequence=["#e377c2"],
+    )
+    fig_bar.update_traces(
+        texttemplate="<b>%{x:,.1f} M€</b>",
+        textposition="outside",
+        cliponaxis=False,
+    )
+    fig_bar.update_layout(
+        height=340,
+        margin=dict(l=150, r=100, t=50, b=40),
+        showlegend=False,
+        xaxis_title="",
+    )
+
+    return fig_donut, fig_bar
+
+
 def render_portefeuille_tab(df_selection: pd.DataFrame, use_transpa: bool, date_debut, date_fin):
     """
     Fonction appelée depuis home.py pour afficher tout le bloc Portefeuille :
@@ -677,6 +763,31 @@ def render_portefeuille_tab(df_selection: pd.DataFrame, use_transpa: bool, date_
                 use_container_width=True,
                 key="pf_bar_portefeuille"
             , config={"displayModeBar": "hover"})
+
+    # ======================================================
+    # ANALYSE OPCVM
+    # ======================================================
+    if SUBCLASS_COL in df_filtre.columns and "VM_INIT" in df_filtre.columns:
+        _df_d1_opc = df_filtre.copy()
+        _df_d1_opc["DATE_TRANSPA"] = pd.to_datetime(_df_d1_opc["DATE_TRANSPA"]).dt.date
+        _df_d1_opc = _df_d1_opc[_df_d1_opc["DATE_TRANSPA"] == d1]
+        if not _df_d1_opc.empty and _df_d1_opc[SUBCLASS_COL].astype(str).str.upper().str.startswith("OPCVM").any():
+            st.markdown("---")
+            st.markdown("### Analyse OPCVM")
+            _fig_donut, _fig_bar_opc = build_opcvm_split_figures(_df_d1_opc, SUBCLASS_COL)
+            _col_donut, _col_bar_opc = st.columns([1, 1.2])
+            with _col_donut:
+                if _fig_donut is not None:
+                    st.plotly_chart(
+                        _fig_donut, use_container_width=True,
+                        key="pf_donut_opcvm", config={"displayModeBar": "hover"},
+                    )
+            with _col_bar_opc:
+                if _fig_bar_opc is not None:
+                    st.plotly_chart(
+                        _fig_bar_opc, use_container_width=True,
+                        key="pf_bar_opcvm", config={"displayModeBar": "hover"},
+                    )
 
     # ======================================================
     # TABLEAU
