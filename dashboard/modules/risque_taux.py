@@ -7,6 +7,7 @@ import plotly.express as px
 from typing import Tuple, List, Optional
 
 from modules.risque_action import _pick_first_existing_col
+from modules.portefeuille import render_opcvm_section
 from modules.format_utils import (
     fmt_meur,
     df_to_excel_bytes,
@@ -952,6 +953,8 @@ def render_risque_taux_tab(df_selection: pd.DataFrame, date_debut, date_fin):
     show_detail = st.toggle("Afficher le détail par titre", value=False, key="taux_detail_toggle")
     if show_detail:
         _render_detail_titres_section(dff, d0, d1)
+
+    render_opcvm_section(df_selection, date_debut, date_fin, key_prefix="taux")
 
     # Stockage pour l'onglet Rapport
     from modules.rapport_export import fig_to_png_bytes_cached

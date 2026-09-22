@@ -5,6 +5,7 @@ import numpy as np
 import streamlit as st
 import plotly.express as px
 from modules.risque_action import _pick_first_existing_col
+from modules.portefeuille import render_opcvm_section
 from utils import safe_multiselect
 
 from modules.format_utils import (
@@ -604,3 +605,5 @@ def render_risque_immo_tab(df_selection: pd.DataFrame, date_debut, date_fin):
         dff_det = dff_det[dff_det["RSQ_FIN_IMMO"].astype(str) == "1"].copy()
         dff_det["DATE_TRANSPA"] = pd.to_datetime(dff_det["DATE_TRANSPA"]).dt.date
         _render_detail_immo_section(dff_det, d0, d1)
+
+    render_opcvm_section(df_selection, date_debut, date_fin, key_prefix="immo")

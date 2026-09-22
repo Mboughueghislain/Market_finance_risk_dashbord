@@ -5,6 +5,7 @@ import numpy as np
 import plotly.express as px
 import streamlit as st
 from utils import safe_multiselect
+from modules.portefeuille import render_opcvm_section
 
 from modules.format_utils import (
     trend,
@@ -1294,6 +1295,8 @@ def render_risque_spread_tab(df_selection: pd.DataFrame, date_debut, date_fin):
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             key="spread_detail_excel",
         )
+
+    render_opcvm_section(df_selection, date_debut, date_fin, key_prefix="spread")
 
     # Stockage pour l'onglet Rapport
     from modules.rapport_export import fig_to_png_bytes_cached

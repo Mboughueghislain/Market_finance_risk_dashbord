@@ -455,6 +455,145 @@ def sort_portefeuille_pdf(df):
     return df
 
 
+def render_opcvm_section(
+    df: pd.DataFrame,
+    date_debut,
+    date_fin,
+    use_transpa: bool = False,
+    key_prefix: str = "opc",
+):
+    """
+    Affiche la section Analyse OPCVM (donut + bar détail + pie + bar Δ VM + table + export).
+    df  : données brutes (avant tout filtre RSQ_FIN_*), couvrant les deux dates.
+    Appelable depuis n'importe quel onglet de risque.
+    """
+    SUBCLASS_COL = "SOUS_CLASSIF_RF"
+    if SUBCLASS_COL not in df.columns or "VM_INIT" not in df.columns:
+        return
+
+    df_opc_full = df[df[SUBCLASS_COL].astype(str).str.upper().str.startswith("OPCVM")]
+    if df_opc_full.empty:
+        return
+
+    st.markdown("---")
+    st.markdown("### Analyse OPCVM")
+
+    # ── 1. date d1 effective ────────────────────────────────────────────────
+    _tmp = df.copy()
+    _tmp["DATE_TRANSPA"] = pd.to_datetime(_tmp["DATE_TRANSPA"]).dt.date
+    _d1_raw = _tmp.loc[
+        _tmp["DATE_TRANSPA"] <= pd.to_datetime(date_fin).date(), "DATE_TRANSPA"
+    ].max()
+    if pd.isna(_d1_raw):
+        st.info("Aucune date valide pour la section OPCVM.")
+        return
+    df_d1 = _tmp[_tmp["DATE_TRANSPA"] == _d1_raw]
+
+    # ── 2. Donut direct vs OPCVM + bar par sous-classe ──────────────────────
+    fig_donut, fig_bar_detail = build_opcvm_split_figures(df_d1, SUBCLASS_COL)
+    col_donut, col_bar_det = st.columns([1, 1.2])
+    with col_donut:
+        if fig_donut is not None:
+            st.plotly_chart(
+                fig_donut, use_container_width=True,
+                key=f"{key_prefix}_donut_opcvm", config={"displayModeBar": "hover"},
+            )
+    with col_bar_det:
+        if fig_bar_detail is not None:
+            st.plotly_chart(
+                fig_bar_detail, use_container_width=True,
+                key=f"{key_prefix}_bar_opc_detail", config={"displayModeBar": "hover"},
+            )
+
+    # ── 3. Métriques OPCVM : pie allocation + bar Δ VM + table ─────────────
+    df_cat_opc, view_opc, d0_opc, d1_opc, _ = compute_portefeuille_metrics(
+        df_opc_full,
+        use_transpa,
+        date_debut,
+        date_fin,
+        group_col=SUBCLASS_COL,
+        class_col=None,
+    )
+    if df_cat_opc is None or view_opc is None:
+        return
+
+    st.markdown("#### Répartition et variation des OPCVM")
+    st.write(
+        f"Période : **{pd.to_datetime(d0_opc).strftime('%d-%m-%Y')}** ⮕ "
+        f"**{pd.to_datetime(d1_opc).strftime('%d-%m-%Y')}**"
+    )
+
+    fig_pie_opc, fig_bar_delta = build_portefeuille_figures(
+        df_cat_opc, view_opc,
+        group_col=SUBCLASS_COL,
+        dim_label="Sous-classe OPCVM",
+    )
+
+    col_pie_opc, col_bar_delta = st.columns([1, 1.2])
+    with col_pie_opc:
+        st.markdown("##### Allocation des OPCVM")
+        if fig_pie_opc is not None:
+            total_opc = float(df_cat_opc["VM_INIT"].sum())
+            total_txt_opc = f"{total_opc:,.1f}".replace(",", " ").replace(".", ",")
+            fig_pie_opc.update_layout(
+                height=400,
+                margin=dict(l=40, r=40, t=80, b=80),
+                legend=dict(orientation="h", yanchor="top", y=-0.1,
+                            xanchor="center", x=0.5, font=dict(size=11)),
+                annotations=[dict(
+                    text=f"<b>{total_txt_opc}</b><br>M€",
+                    x=0.5, y=0.5, font=dict(size=16, color="#333333"), showarrow=False,
+                )],
+            )
+            st.plotly_chart(
+                fig_pie_opc, use_container_width=True,
+                key=f"{key_prefix}_pie_opc", config={"displayModeBar": "hover"},
+            )
+    with col_bar_delta:
+        st.markdown("##### Variation des OPCVM")
+        if fig_bar_delta is not None:
+            fig_bar_delta.update_layout(
+                height=400, bargap=0.1, margin=dict(l=160, r=40, t=60, b=40),
+            )
+            fig_bar_delta.update_traces(width=0.8)
+            st.plotly_chart(
+                fig_bar_delta, use_container_width=True,
+                key=f"{key_prefix}_bar_delta_opc", config={"displayModeBar": "hover"},
+            )
+
+    # Table
+    opc_metric_cols = [
+        (SUBCLASS_COL,   "Sous-classe OPCVM"),
+        ("VM_FIN",       "VM (M€)"),
+        ("Delta_VM",     "Δ VM (M€)"),
+        ("Delta_VM_pct", "Δ VM (%)"),
+        ("Tendance",     "Tendance"),
+        ("Alloc (%)",    "Alloc (%)"),
+        ("Δ Alloc (%)",  "Δ Alloc (%)"),
+    ]
+    aff_opc = view_opc[
+        [c for c, _ in opc_metric_cols if c in view_opc.columns]
+    ].rename(columns=dict(opc_metric_cols))
+
+    fmt_opc = {}
+    if "VM (M€)"     in aff_opc.columns: fmt_opc["VM (M€)"]     = fmt_meur
+    if "Δ VM (M€)"   in aff_opc.columns: fmt_opc["Δ VM (M€)"]   = fmt_delta_meur
+    if "Δ VM (%)"    in aff_opc.columns: fmt_opc["Δ VM (%)"]     = fmt_pct
+    if "Alloc (%)"   in aff_opc.columns: fmt_opc["Alloc (%)"]   = fmt_pct_no_sign
+    if "Δ Alloc (%)" in aff_opc.columns: fmt_opc["Δ Alloc (%)"] = fmt_pct_no_sign
+
+    render_static_dataframe(apply_common_table_styles(aff_opc, fmt_map=fmt_opc))
+
+    excel_opc = df_to_excel_bytes(aff_opc, sheet_name="OPCVM")
+    st.download_button(
+        label="📥 Télécharger OPCVM en Excel",
+        data=excel_opc,
+        file_name="Tableau_OPCVM.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        key=f"{key_prefix}_dl_opc",
+    )
+
+
 def build_opcvm_split_figures(
     df_d1: pd.DataFrame,
     subclass_col: str = "SOUS_CLASSIF_RF",
@@ -687,125 +826,8 @@ def render_portefeuille_tab(df_selection: pd.DataFrame, use_transpa: bool, date_
         st.warning("Aucune donnée disponible pour les filtres et dates sélectionnés.")
         return
 
-    # ======================================================
-    # ANALYSE OPCVM
-    # ======================================================
-    _has_subclass = SUBCLASS_COL in df_filtre.columns and "VM_INIT" in df_filtre.columns
-    _df_opc_full = (
-        df_filtre[df_filtre[SUBCLASS_COL].astype(str).str.upper().str.startswith("OPCVM")]
-        if _has_subclass else pd.DataFrame()
-    )
-    if not _df_opc_full.empty:
-        st.markdown("### Analyse OPCVM")
-
-        # ── 1. Donut direct vs OPCVM + bar détail ──────────────────────────
-        _df_d1_opc = df_filtre.copy()
-        _df_d1_opc["DATE_TRANSPA"] = pd.to_datetime(_df_d1_opc["DATE_TRANSPA"]).dt.date
-        _df_d1_opc = _df_d1_opc[_df_d1_opc["DATE_TRANSPA"] == d1]
-
-        _fig_donut, _fig_bar_opc = build_opcvm_split_figures(_df_d1_opc, SUBCLASS_COL)
-        _col_donut, _col_bar_opc = st.columns([1, 1.2])
-        with _col_donut:
-            if _fig_donut is not None:
-                st.plotly_chart(
-                    _fig_donut, use_container_width=True,
-                    key="pf_donut_opcvm", config={"displayModeBar": "hover"},
-                )
-        with _col_bar_opc:
-            if _fig_bar_opc is not None:
-                st.plotly_chart(
-                    _fig_bar_opc, use_container_width=True,
-                    key="pf_bar_opc_detail", config={"displayModeBar": "hover"},
-                )
-
-        # ── 2. Métriques OPCVM (pie allocation + bar Δ VM + table) ─────────
-        _df_cat_opc, _view_opc, _d0_opc, _d1_opc, _has_vnc_opc = compute_portefeuille_metrics(
-            _df_opc_full,
-            use_transpa,
-            date_debut,
-            date_fin,
-            group_col=SUBCLASS_COL,
-            class_col=None,
-        )
-        if _df_cat_opc is not None and _view_opc is not None:
-            st.markdown("#### Répartition et variation des OPCVM")
-            st.write(
-                f"Période : **{pd.to_datetime(_d0_opc).strftime('%d-%m-%Y')}** ⮕ "
-                f"**{pd.to_datetime(_d1_opc).strftime('%d-%m-%Y')}**"
-            )
-
-            _fig_pie_opc, _fig_bar_delta_opc = build_portefeuille_figures(
-                _df_cat_opc, _view_opc,
-                group_col=SUBCLASS_COL,
-                dim_label="Sous-classe OPCVM",
-            )
-
-            _col_pie_opc, _col_bar_delta_opc = st.columns([1, 1.2])
-            with _col_pie_opc:
-                st.markdown("##### Allocation des OPCVM")
-                if _fig_pie_opc is not None:
-                    _total_opc = float(_df_cat_opc["VM_INIT"].sum())
-                    _total_txt_opc = f"{_total_opc:,.1f}".replace(",", " ").replace(".", ",")
-                    _fig_pie_opc.update_layout(
-                        height=400,
-                        margin=dict(l=40, r=40, t=80, b=80),
-                        legend=dict(orientation="h", yanchor="top", y=-0.1,
-                                    xanchor="center", x=0.5, font=dict(size=11)),
-                        annotations=[dict(
-                            text=f"<b>{_total_txt_opc}</b><br>M€",
-                            x=0.5, y=0.5, font=dict(size=16, color="#333333"), showarrow=False,
-                        )],
-                    )
-                    st.plotly_chart(
-                        _fig_pie_opc, use_container_width=True,
-                        key="pf_pie_opc", config={"displayModeBar": "hover"},
-                    )
-            with _col_bar_delta_opc:
-                st.markdown("##### Variation des OPCVM")
-                if _fig_bar_delta_opc is not None:
-                    _fig_bar_delta_opc.update_layout(
-                        height=400,
-                        bargap=0.1,
-                        margin=dict(l=160, r=40, t=60, b=40),
-                    )
-                    _fig_bar_delta_opc.update_traces(width=0.8)
-                    st.plotly_chart(
-                        _fig_bar_delta_opc, use_container_width=True,
-                        key="pf_bar_delta_opc", config={"displayModeBar": "hover"},
-                    )
-
-            # Table OPCVM
-            _opc_metric_cols = [
-                (SUBCLASS_COL,    "Sous-classe OPCVM"),
-                ("VM_FIN",        "VM (M€)"),
-                ("Delta_VM",      "Δ VM (M€)"),
-                ("Delta_VM_pct",  "Δ VM (%)"),
-                ("Tendance",      "Tendance"),
-                ("Alloc (%)",     "Alloc (%)"),
-                ("Δ Alloc (%)",   "Δ Alloc (%)"),
-            ]
-            _aff_opc = _view_opc[
-                [c for c, _ in _opc_metric_cols if c in _view_opc.columns]
-            ].rename(columns=dict(_opc_metric_cols))
-
-            _fmt_opc = {}
-            if "VM (M€)"   in _aff_opc.columns: _fmt_opc["VM (M€)"]   = fmt_meur
-            if "Δ VM (M€)" in _aff_opc.columns: _fmt_opc["Δ VM (M€)"] = fmt_delta_meur
-            if "Δ VM (%)"  in _aff_opc.columns: _fmt_opc["Δ VM (%)"]  = fmt_pct
-            if "Alloc (%)" in _aff_opc.columns: _fmt_opc["Alloc (%)"] = fmt_pct_no_sign
-            if "Δ Alloc (%)" in _aff_opc.columns: _fmt_opc["Δ Alloc (%)"] = fmt_pct_no_sign
-
-            render_static_dataframe(apply_common_table_styles(_aff_opc, fmt_map=_fmt_opc))
-
-            _excel_opc = df_to_excel_bytes(_aff_opc, sheet_name="OPCVM")
-            st.download_button(
-                label="📥 Télécharger OPCVM en Excel",
-                data=_excel_opc,
-                file_name="Tableau_OPCVM.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key="pf_dl_opc",
-            )
-        st.markdown("---")
+    render_opcvm_section(df_filtre, date_debut, date_fin, use_transpa, key_prefix="pf")
+    st.markdown("---")
 
     # ======================================================
     # GRAPHIQUES

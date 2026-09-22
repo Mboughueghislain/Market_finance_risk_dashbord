@@ -27,6 +27,7 @@ import streamlit as st
 from typing import Optional, List, Tuple
 from utils import safe_multiselect
 
+from modules.portefeuille import render_opcvm_section
 from modules.format_utils import (
     trend,
     fmt_meur,
@@ -1260,3 +1261,5 @@ def render_risque_action_tab(df_selection: pd.DataFrame, date_debut, date_fin):
     show_detail = st.toggle("Afficher le détail par titre", value=False, key="action_detail_toggle")
     if show_detail:
         _render_detail_action_section(dff, d0, d1)
+
+    render_opcvm_section(df_selection, date_debut, date_fin, key_prefix="action")
