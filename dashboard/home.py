@@ -319,9 +319,8 @@ _already_auth = st.session_state.get("authentication_status") is True
 
 if not _already_auth:
     if _was_auth:
-        # L'utilisateur vient de se déconnecter : recharger la page pour vider le DOM des fragments.
-        _st_comp.html("<script>window.parent.location.reload(true);</script>", height=0)
-        st.stop()
+        # L'utilisateur vient de se déconnecter : rerun propre pour vider les fragments.
+        st.rerun()
     # CSS uniquement pour la page de login (fond sombre + formulaire thème violet)
     st.markdown(
         """
@@ -443,11 +442,10 @@ elif _auth_status is None:
 st.session_state["_was_authenticated"] = True
 
 # Si l'utilisateur vient de se connecter depuis la page de login (même rerun),
-# le formulaire de login ET le dashboard se rendraient simultanément → fond violet + dashboard superposés.
-# On force un rechargement propre ; le cookie est déjà posé, la session reprend sans re-saisir le mot de passe.
+# le formulaire de login ET le dashboard se rendraient simultanément.
+# st.rerun() préserve la session_state (contrairement à un reload JS qui la vide).
 if not _already_auth:
-    _st_comp.html("<script>window.parent.location.reload(true);</script>", height=0)
-    st.stop()
+    st.rerun()
 
 # ── Utilisateur connecté : restaurer le fond et les formulaires du dashboard ──
 st.markdown(
