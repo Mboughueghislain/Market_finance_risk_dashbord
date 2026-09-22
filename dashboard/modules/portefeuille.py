@@ -455,6 +455,87 @@ def sort_portefeuille_pdf(df):
     return df
 
 
+def render_opcvm_context_donut(
+    df_selection: pd.DataFrame,
+    date_fin,
+    classif_rf_filter: list,
+    key_prefix: str = "ctx",
+    title: str = "Part OPCVM",
+):
+    """
+    Petit donut de contexte : au sein de classif_rf_filter (ex. ["Obligation"]),
+    montre la proportion Titres directs vs OPCVM en VM à date_fin.
+    Affiché en haut de chaque onglet de risque pour donner le périmètre.
+    """
+    CLASSIF_COL  = "CLASSIF_RF"
+    SUBCLASS_COL = "SOUS_CLASSIF_RF"
+
+    needed = {CLASSIF_COL, SUBCLASS_COL, "VM_INIT", "DATE_TRANSPA"}
+    if not needed.issubset(df_selection.columns):
+        return
+
+    dft = df_selection.copy()
+    dft["DATE_TRANSPA"] = pd.to_datetime(dft["DATE_TRANSPA"]).dt.date
+    d1 = dft.loc[
+        dft["DATE_TRANSPA"] <= pd.to_datetime(date_fin).date(), "DATE_TRANSPA"
+    ].max()
+    if pd.isna(d1):
+        return
+
+    df_d1 = dft[
+        (dft["DATE_TRANSPA"] == d1) &
+        (dft[CLASSIF_COL].astype(str).isin(classif_rf_filter))
+    ].copy()
+    if df_d1.empty:
+        return
+
+    df_d1["VM_INIT"] = pd.to_numeric(df_d1["VM_INIT"], errors="coerce").fillna(0)
+    is_opc = df_d1[SUBCLASS_COL].astype(str).str.upper().str.startswith("OPCVM")
+    vm_opc = float(df_d1.loc[is_opc,  "VM_INIT"].sum())
+    vm_dir = float(df_d1.loc[~is_opc, "VM_INIT"].sum())
+    if vm_opc + vm_dir <= 0:
+        return
+
+    fig = go.Figure(go.Pie(
+        labels=["Titres directs", "OPCVM"],
+        values=[vm_dir / 1e6, vm_opc / 1e6],
+        hole=0.55,
+        marker=dict(colors=["#1f77b4", "#e377c2"]),
+        texttemplate="<b>%{percent:.1%}</b>",
+        textposition="inside",
+        hovertemplate=(
+            "<b>%{label}</b><br>VM : %{value:,.1f} M€<br>"
+            "Part : %{percent:.1%}<extra></extra>"
+        ),
+    ))
+    pct_opc = vm_opc / (vm_opc + vm_dir) * 100
+    fig.update_layout(
+        title=dict(text=title, font=dict(size=13), x=0.5, xanchor="center"),
+        height=220,
+        margin=dict(l=10, r=10, t=40, b=50),
+        legend=dict(
+            orientation="h", yanchor="top", y=-0.15,
+            xanchor="center", x=0.5, font=dict(size=11),
+        ),
+        annotations=[dict(
+            text=f"<b>{pct_opc:.1f}%</b><br><span style='font-size:10px'>OPCVM</span>",
+            x=0.5, y=0.5, font=dict(size=14, color="#e377c2"), showarrow=False,
+        )],
+    )
+
+    _, col_chart, _ = st.columns([1, 1, 1])
+    with col_chart:
+        st.plotly_chart(
+            fig, use_container_width=True,
+            key=f"{key_prefix}_ctx_donut", config={"displayModeBar": False},
+        )
+    st.caption(
+        f"Sur {', '.join(classif_rf_filter)} : {pct_opc:.1f}% de la VM est en OPCVM "
+        f"({vm_opc/1e6:,.1f} M€ sur {(vm_opc+vm_dir)/1e6:,.1f} M€ total). "
+        "Ces fonds ne sont pas inclus dans l'analyse ci-dessous (RSQ direct = 0)."
+    )
+
+
 def render_opcvm_section(
     df: pd.DataFrame,
     date_debut,

@@ -5,7 +5,7 @@ import numpy as np
 import streamlit as st
 import plotly.express as px
 from modules.risque_action import _pick_first_existing_col
-from modules.portefeuille import render_opcvm_section
+from modules.portefeuille import render_opcvm_context_donut
 from utils import safe_multiselect
 
 from modules.format_utils import (
@@ -561,6 +561,12 @@ def render_risque_immo_tab(df_selection: pd.DataFrame, date_debut, date_fin):
         f"Période : **{d0.strftime('%d-%m-%Y')}** ⮕ "
         f"**{d1.strftime('%d-%m-%Y')}**"
     )
+    render_opcvm_context_donut(
+        df_selection, date_fin,
+        classif_rf_filter=["Immobilier"],
+        key_prefix="immo",
+        title="Part OPCVM dans l'Immobilier",
+    )
 
     # -------- Tableau + export Excel --------
     st.markdown("**Top 10 Titres**")
@@ -606,4 +612,3 @@ def render_risque_immo_tab(df_selection: pd.DataFrame, date_debut, date_fin):
         dff_det["DATE_TRANSPA"] = pd.to_datetime(dff_det["DATE_TRANSPA"]).dt.date
         _render_detail_immo_section(dff_det, d0, d1)
 
-    render_opcvm_section(df_selection, date_debut, date_fin, key_prefix="immo")

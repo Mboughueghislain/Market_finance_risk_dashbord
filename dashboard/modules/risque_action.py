@@ -27,7 +27,7 @@ import streamlit as st
 from typing import Optional, List, Tuple
 from utils import safe_multiselect
 
-from modules.portefeuille import render_opcvm_section
+from modules.portefeuille import render_opcvm_context_donut
 from modules.format_utils import (
     trend,
     fmt_meur,
@@ -1058,6 +1058,12 @@ def render_risque_action_tab(df_selection: pd.DataFrame, date_debut, date_fin):
         f"Période : **{d0.strftime('%d-%m-%Y')}** ⮕ "
         f"**{d1.strftime('%d-%m-%Y')}**"
     )
+    render_opcvm_context_donut(
+        df_selection, date_fin,
+        classif_rf_filter=["Action"],
+        key_prefix="action",
+        title="Part OPCVM dans les Actions",
+    )
 
     # ======================================================
     # 1) Concentration par émetteur / groupe
@@ -1262,4 +1268,3 @@ def render_risque_action_tab(df_selection: pd.DataFrame, date_debut, date_fin):
     if show_detail:
         _render_detail_action_section(dff, d0, d1)
 
-    render_opcvm_section(df_selection, date_debut, date_fin, key_prefix="action")
