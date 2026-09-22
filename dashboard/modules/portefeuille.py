@@ -523,7 +523,7 @@ def render_opcvm_context_donut(
         )],
     )
 
-    _, col_chart, _ = st.columns([1, 1, 1])
+    col_chart, _ = st.columns([1, 2])
     with col_chart:
         st.plotly_chart(
             fig, use_container_width=True,
