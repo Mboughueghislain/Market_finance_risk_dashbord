@@ -317,6 +317,16 @@ _was_auth = st.session_state.pop("_was_authenticated", False)
 
 _already_auth = st.session_state.get("authentication_status") is True
 
+# Sur session fraîche (F5), session_state est vide donc _already_auth = False.
+# login(location="main") ne lit PAS le cookie — seul "unrendered" le fait.
+# On tente donc le cookie en premier ; si valide, on évite d'afficher le formulaire.
+if not _already_auth:
+    _cookie_result = _authenticator.login(location="unrendered")
+    if _cookie_result is not None:
+        _, _cookie_status, _ = _cookie_result
+        if _cookie_status is True:
+            st.rerun()   # rerun propre : _already_auth sera True, dashboard s'affiche
+
 if not _already_auth:
     if _was_auth:
         # L'utilisateur vient de se déconnecter : rerun propre pour vider les fragments.
@@ -419,6 +429,7 @@ if not _already_auth:
             },
         )
 else:
+    # Session active (même session Streamlit) : revalide le cookie
     _login_result = _authenticator.login(location="unrendered")
 
 # 0.4.x : retourne un tuple OU None (premier rendu / re-auth cookie)
