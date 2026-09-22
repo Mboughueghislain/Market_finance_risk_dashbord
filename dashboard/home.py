@@ -339,12 +339,16 @@ if not _already_auth:
         [data-testid="stForm"] label {
             color: rgba(255,255,255,0.9) !important; font-weight: 600 !important;
         }
-        /* Conteneur champ réel (BaseUI) */
+        /* Conteneur champ réel (BaseUI) — box-shadow impossible à écraser */
         [data-testid="stForm"] [data-baseweb="input"] {
-            background-color: rgba(255,255,255,0.18) !important;
-            border: 1.5px solid rgba(255,255,255,0.7) !important;
+            background-color: rgba(255,255,255,0.22) !important;
+            border: none !important;
             border-radius: 8px !important;
-            box-shadow: none !important;
+            box-shadow: 0 0 0 1.5px rgba(255,255,255,0.75) !important;
+        }
+        /* Focus — renforce le contour */
+        [data-testid="stForm"] [data-baseweb="input"]:focus-within {
+            box-shadow: 0 0 0 2px white !important;
         }
         /* Wrappers intermédiaires — neutralisés pour éviter la double bordure */
         [data-testid="stForm"] .stTextInput > div,
@@ -374,11 +378,6 @@ if not _already_auth:
         [data-testid="stForm"] input::placeholder {
             color: rgba(255,255,255,0.45) !important;
             -webkit-text-fill-color: rgba(255,255,255,0.45) !important;
-        }
-        /* Focus — uniquement sur le conteneur BaseUI */
-        [data-testid="stForm"] [data-baseweb="input"]:focus-within {
-            border-color: rgba(255,255,255,0.7) !important;
-            box-shadow: 0 0 0 2px rgba(255,255,255,0.12) !important;
         }
         /* Icône œil */
         [data-testid="stForm"] .stTextInput button,
