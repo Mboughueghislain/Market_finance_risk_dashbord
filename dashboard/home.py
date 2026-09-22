@@ -339,10 +339,10 @@ if not _already_auth:
         [data-testid="stForm"] label {
             color: rgba(255,255,255,0.9) !important; font-weight: 600 !important;
         }
-        /* Conteneur champ réel (BaseUI) — unique porteur de la bordure */
+        /* Conteneur champ réel (BaseUI) */
         [data-testid="stForm"] [data-baseweb="input"] {
-            background-color: rgba(255,255,255,0.15) !important;
-            border: 1px solid rgba(255,255,255,0.35) !important;
+            background-color: rgba(255,255,255,0.18) !important;
+            border: 1.5px solid rgba(255,255,255,0.7) !important;
             border-radius: 8px !important;
             box-shadow: none !important;
         }
@@ -353,7 +353,7 @@ if not _already_auth:
             border: none !important;
             box-shadow: none !important;
         }
-        /* Texte saisi */
+        /* Texte saisi — fond via le wrapper BaseUI, pas l'input lui-même */
         [data-testid="stForm"] input,
         [data-testid="stForm"] .stTextInput input {
             color: white !important;
