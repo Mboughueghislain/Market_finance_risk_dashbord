@@ -511,8 +511,8 @@ def render_opcvm_context_donut(
     pct_opc = vm_opc / (vm_opc + vm_dir) * 100
     fig.update_layout(
         title=dict(text=title, font=dict(size=13), x=0.5, xanchor="center"),
-        height=220,
-        margin=dict(l=10, r=10, t=40, b=50),
+        width=270, height=220,
+        margin=dict(l=0, r=0, t=40, b=50),
         legend=dict(
             orientation="h", yanchor="top", y=-0.15,
             xanchor="center", x=0.5, font=dict(size=11),
@@ -523,12 +523,10 @@ def render_opcvm_context_donut(
         )],
     )
 
-    col_chart, _ = st.columns([1, 2])
-    with col_chart:
-        st.plotly_chart(
-            fig, use_container_width=True,
-            key=f"{key_prefix}_ctx_donut", config={"displayModeBar": False},
-        )
+    st.plotly_chart(
+        fig, use_container_width=False,
+        key=f"{key_prefix}_ctx_donut", config={"displayModeBar": False},
+    )
     st.caption(
         f"Sur {', '.join(classif_rf_filter)} : {pct_opc:.1f}% de la VM est en OPCVM "
         f"({vm_opc/1e6:,.1f} M€ sur {(vm_opc+vm_dir)/1e6:,.1f} M€ total). "
