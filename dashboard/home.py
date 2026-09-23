@@ -17,6 +17,9 @@ from app_config import (  # type: ignore
 
 import streamlit_authenticator as stauth
 import streamlit.components.v1 as _st_comp
+import jwt as _jwt_lib
+import time as _time
+from datetime import datetime as _dt, timedelta as _td
 
 from modules.tableau_data import tableau_data
 from modules.portefeuille import render_portefeuille_tab
@@ -65,6 +68,53 @@ st.set_page_config(
 if "app_config" not in st.session_state:
     st.session_state["app_config"] = load_config()
 _cfg = st.session_state["app_config"]
+
+# ── Gestion directe du cookie d'authentification ──────────────────────────────
+# stx.CookieManager (utilisé par stauth) est un composant JS asynchrone.
+# Quand st.rerun() est appelé juste après le login, le composant peut ne pas
+# s'exécuter et le cookie n'est jamais écrit.
+# On gère donc le cookie nous-mêmes :
+#   - lecture  : st.context.cookies (HTTP headers, synchrone, fiable dès la 1ère requête)
+#   - écriture : <script>document.cookie=…</script> inline (synchrone, exécuté avant rerun)
+_AUTH_COOKIE_NAME = "risk_dashboard_auth"
+_AUTH_COOKIE_KEY  = _cfg.get("cookie_key", "risk_dashboard_secret_key_change_me")
+_AUTH_COOKIE_DAYS = 1
+
+def _read_auth_cookie() -> str | None:
+    """Lit et valide le cookie JWT. Retourne le username ou None."""
+    token_str = st.context.cookies.get(_AUTH_COOKIE_NAME)
+    if not token_str:
+        return None
+    try:
+        tok = _jwt_lib.decode(token_str, _AUTH_COOKIE_KEY, algorithms=["HS256"])
+        if tok.get("exp_date", 0) > _dt.now().timestamp():
+            return tok.get("username")
+    except Exception:
+        pass
+    return None
+
+def _write_auth_cookie_js(username: str) -> str:
+    """Retourne un snippet HTML qui écrit le cookie via document.cookie (inline JS)."""
+    exp_ts  = (_dt.now() + _td(days=_AUTH_COOKIE_DAYS)).timestamp()
+    token   = _jwt_lib.encode(
+        {"username": username, "exp_date": exp_ts},
+        _AUTH_COOKIE_KEY, algorithm="HS256"
+    )
+    expires = (_dt.now() + _td(days=_AUTH_COOKIE_DAYS)).strftime("%a, %d %b %Y %H:%M:%S GMT")
+    return (
+        f'<script>document.cookie='
+        f'"{_AUTH_COOKIE_NAME}={token}; path=/; SameSite=Strict; expires={expires}"'
+        f';</script>'
+    )
+
+def _delete_auth_cookie_js() -> str:
+    """Retourne un snippet HTML qui supprime le cookie."""
+    return (
+        f'<script>document.cookie='
+        f'"{_AUTH_COOKIE_NAME}=; path=/; SameSite=Strict; expires=Thu, 01 Jan 1970 00:00:00 GMT"'
+        f';</script>'
+    )
+# ──────────────────────────────────────────────────────────────────────────────
 
 # Supprime le padding supérieur des composants Plotly dans les colonnes
 # + Style sidebar Option A (violet foncé)
@@ -317,17 +367,25 @@ _was_auth = st.session_state.pop("_was_authenticated", False)
 
 _already_auth = st.session_state.get("authentication_status") is True
 
-# Sur session fraîche (F5), session_state est vide donc _already_auth = False.
-# login(location="main") ne lit PAS le cookie — seul "unrendered" le fait.
-# On tente donc le cookie en premier ; si valide, on évite d'afficher le formulaire.
-if not _already_auth:
-    _cookie_result = _authenticator.login(location="unrendered")
-    if _cookie_result is not None:
-        _, _cookie_status, _ = _cookie_result
-        if _cookie_status is True:
-            st.rerun()   # rerun propre : _already_auth sera True, dashboard s'affiche
+# Sur session fraîche (F5) : session_state vide, mais le cookie HTTP est déjà
+# dans les headers (st.context.cookies, synchrone). On le lit directement ici
+# pour éviter d'afficher la page de login inutilement.
+# Cas logout : on ignore le cookie (session en cours, utilisateur vient de se
+# déconnecter) et on injecte le script de suppression du cookie.
+_just_logged_out = st.session_state.get("logout") is True
+if not _already_auth and not _just_logged_out:
+    _cookie_username = _read_auth_cookie()
+    if _cookie_username and _cookie_username in _auth_credentials.get("usernames", {}):
+        st.session_state["authentication_status"] = True
+        st.session_state["username"] = _cookie_username
+        st.session_state["name"]     = _cookie_username
+        st.session_state.setdefault("logout", None)
+        _already_auth = True
 
 if not _already_auth:
+    if _just_logged_out:
+        # Supprime le cookie côté navigateur.
+        st.html(_delete_auth_cookie_js(), unsafe_allow_javascript=True)
     if _was_auth:
         # L'utilisateur vient de se déconnecter : rerun propre pour vider les fragments.
         st.rerun()
@@ -452,8 +510,20 @@ st.session_state["_was_authenticated"] = True
 
 # Si l'utilisateur vient de se connecter depuis la page de login (même rerun),
 # le formulaire de login ET le dashboard se rendraient simultanément.
-# st.rerun() préserve la session_state (contrairement à un reload JS qui la vide).
+# On écrit aussi le cookie via un <script> inline (synchrone, exécuté avant tout
+# rerun) afin qu'un F5 ultérieur retrouve la session via st.context.cookies.
 if not _already_auth:
+    # Écrit le cookie via st.html(unsafe_allow_javascript=True).
+    # Streamlit crée les <script> via document.createElement('script') → cookie défini
+    # dans le contexte de la page principale (pas d'iframe → pas de contrainte SameSite).
+    # time.sleep(0.1) laisse au navigateur le temps d'exécuter le script avant le rerun.
+    _auth_user = _username or st.session_state.get("username", "")
+    if _auth_user:
+        st.html(
+            _write_auth_cookie_js(_auth_user),
+            unsafe_allow_javascript=True,
+        )
+        _time.sleep(0.1)
     st.rerun()
 
 # ── Utilisateur connecté : restaurer le fond et les formulaires du dashboard ──
