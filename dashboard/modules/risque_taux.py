@@ -252,6 +252,9 @@ def _build_var_stress_table(
 
     # --- Stress : VM_REF, VM_VAR95, VM_VAR99 ---
     df_end = df1.copy()
+    for _old, _new in [("VM_PMVL_TAUX_VAR95", "VM_TAUX_VAR95"), ("VM_PMVL_TAUX_VAR99", "VM_TAUX_VAR99")]:
+        if _old in df_end.columns and _new not in df_end.columns:
+            df_end = df_end.rename(columns={_old: _new})
     stress_cols = ["VM_INIT", "VM_TAUX_VAR95", "VM_TAUX_VAR99"]
     for c in stress_cols:
         df_end[c] = pd.to_numeric(df_end[c], errors="coerce").fillna(0.0)
@@ -553,6 +556,9 @@ def _build_detail_titres_table(
     if df1.empty:
         return None
 
+    for _old, _new in [("VM_PMVL_TAUX_VAR95", "VM_TAUX_VAR95"), ("VM_PMVL_TAUX_VAR99", "VM_TAUX_VAR99")]:
+        if _old in df1.columns and _new not in df1.columns:
+            df1 = df1.rename(columns={_old: _new})
     for c in ["VM_TAUX_VAR95", "VM_TAUX_VAR99"]:
         df1[c] = pd.to_numeric(df1[c], errors="coerce").fillna(df1["VM_INIT"])
     df1["VM_MEUR"]    = df1["VM_INIT"] / 1e6
