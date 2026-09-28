@@ -252,7 +252,7 @@ def _build_var_stress_table(
 
     # --- Stress : VM_REF, VM_VAR95, VM_VAR99 ---
     df_end = df1.copy()
-    stress_cols = ["VM_INIT", "VM_TAUX_VAR95", "VM_PMVL_TAUX_VAR99"]
+    stress_cols = ["VM_INIT", "VM_TAUX_VAR95", "VM_TAUX_VAR99"]
     for c in stress_cols:
         df_end[c] = pd.to_numeric(df_end[c], errors="coerce").fillna(0.0)
 
@@ -263,7 +263,7 @@ def _build_var_stress_table(
         .rename(columns={
             "VM_INIT": "VM_REF",
             "VM_TAUX_VAR95": "VM_VAR95",
-            "VM_PMVL_TAUX_VAR99": "VM_VAR99",
+            "VM_TAUX_VAR99": "VM_VAR99",
         })
         .reset_index()
     )
@@ -553,11 +553,11 @@ def _build_detail_titres_table(
     if df1.empty:
         return None
 
-    for c in ["VM_TAUX_VAR95", "VM_PMVL_TAUX_VAR99"]:
+    for c in ["VM_TAUX_VAR95", "VM_TAUX_VAR99"]:
         df1[c] = pd.to_numeric(df1[c], errors="coerce").fillna(df1["VM_INIT"])
     df1["VM_MEUR"]    = df1["VM_INIT"] / 1e6
     df1["VAR95_MEUR"] = (df1["VM_TAUX_VAR95"] - df1["VM_INIT"]).abs() / 1e6
-    df1["VAR99_MEUR"] = (df1["VM_PMVL_TAUX_VAR99"] - df1["VM_INIT"]).abs() / 1e6
+    df1["VAR99_MEUR"] = (df1["VM_TAUX_VAR99"] - df1["VM_INIT"]).abs() / 1e6
 
     # Colonnes de regroupement — mêmes pour d0 et d1 pour cohérence du Delta_VM
     grp_cols = (["ID"] if id_col else []) + ["LIBELLE"]
