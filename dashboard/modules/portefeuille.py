@@ -530,7 +530,7 @@ def render_opcvm_context_donut(
     st.caption(
         f"Sur {', '.join(classif_rf_filter)} : {pct_opc:.1f}% de la VM est en OPCVM "
         f"({vm_opc/1e6:,.1f} M€ sur {(vm_opc+vm_dir)/1e6:,.1f} M€ total). "
-        "Ces fonds ne sont pas inclus dans l'analyse ci-dessous (RSQ direct = 0)."
+        "Ces fonds ne sont pas inclus dans l'analyse ci-dessous."
     )
 
 
