@@ -566,25 +566,7 @@ def render_opcvm_section(
     if pd.isna(_d1_raw):
         st.info("Aucune date valide pour la section OPCVM.")
         return
-    df_d1 = _tmp[_tmp["DATE_TRANSPA"] == _d1_raw]
-
-    # ── 2. Donut direct vs OPCVM + bar par sous-classe ──────────────────────
-    fig_donut, fig_bar_detail = build_opcvm_split_figures(df_d1, SUBCLASS_COL)
-    col_donut, col_bar_det = st.columns([1, 1.2])
-    with col_donut:
-        if fig_donut is not None:
-            st.plotly_chart(
-                fig_donut, use_container_width=True,
-                key=f"{key_prefix}_donut_opcvm", config={"displayModeBar": "hover"},
-            )
-    with col_bar_det:
-        if fig_bar_detail is not None:
-            st.plotly_chart(
-                fig_bar_detail, use_container_width=True,
-                key=f"{key_prefix}_bar_opc_detail", config={"displayModeBar": "hover"},
-            )
-
-    # ── 3. Métriques OPCVM : pie allocation + bar Δ VM + table ─────────────
+    # ── 2. Métriques OPCVM : pie allocation + bar Δ VM + table ─────────────
     df_cat_opc, view_opc, d0_opc, d1_opc, _ = compute_portefeuille_metrics(
         df_opc_full,
         use_transpa,
@@ -905,6 +887,12 @@ def render_portefeuille_tab(df_selection: pd.DataFrame, use_transpa: bool, date_
         st.warning("Aucune donnée disponible pour les filtres et dates sélectionnés.")
         return
 
+    render_opcvm_context_donut(
+        df_selection, date_fin,
+        classif_rf_filter=["Obligation"],
+        key_prefix="pf_obl",
+        title="Part OPCVM dans les Obligations",
+    )
     render_opcvm_section(df_filtre, date_debut, date_fin, use_transpa, key_prefix="pf")
     st.markdown("---")
 
