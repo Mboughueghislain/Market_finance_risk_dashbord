@@ -749,6 +749,10 @@ def render_portefeuille_tab(df_selection: pd.DataFrame, use_transpa: bool, date_
       - Export Excel
     """
     st.subheader("Portefeuille")
+    st.write(
+        f"Période : **{pd.to_datetime(date_debut).strftime('%d-%m-%Y')}** ⮕ "
+        f"**{pd.to_datetime(date_fin).strftime('%d-%m-%Y')}**"
+    )
 
     # ======================================================
     # ZONE FILTRES (en haut à gauche)
@@ -897,10 +901,6 @@ def render_portefeuille_tab(df_selection: pd.DataFrame, use_transpa: bool, date_
     # ======================================================
     # GRAPHIQUES
     # ======================================================
-    st.write(
-        f"Période : **{pd.to_datetime(d0).strftime('%d-%m-%Y')}** ⮕ "
-        f"**{pd.to_datetime(d1).strftime('%d-%m-%Y')}**"
-    )
     col_pie, col_bar = st.columns([1, 1.2])
 
     # On construit les figures via la fonction réutilisable
