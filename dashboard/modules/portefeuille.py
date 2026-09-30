@@ -1075,6 +1075,8 @@ def render_portefeuille_tab(df_selection: pd.DataFrame, use_transpa: bool, date_
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
+    render_opcvm_section(df_filtre, date_debut, date_fin, use_transpa, key_prefix="pf")
+
     # ======================================================
     # TABLEAU DÉTAIL PAR TITRE
     # ======================================================
@@ -1351,8 +1353,6 @@ def render_portefeuille_tab(df_selection: pd.DataFrame, use_transpa: bool, date_
                 file_name="detail_titres.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
-
-    render_opcvm_section(df_filtre, date_debut, date_fin, use_transpa, key_prefix="pf")
     
     
     
