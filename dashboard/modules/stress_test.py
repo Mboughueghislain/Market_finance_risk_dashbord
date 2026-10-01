@@ -9,6 +9,7 @@ from typing import Optional
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+import streamlit.components.v1 as components
 
 # =============================================================================
 # Configuration — adapter si l'environnement change
@@ -288,77 +289,139 @@ def _render_scenario_form(idx: int, scenario: dict, df_selection: pd.DataFrame) 
 # Affichage des résultats
 # =============================================================================
 
-def _agg_stress_hier(df: pd.DataFrame, levels: list[str]) -> pd.DataFrame:
-    """Agrège les métriques par niveaux hiérarchiques + ligne TOTAL par groupe."""
-    agg_cols = dict(
-        VM_init   =("VM_INIT",     "sum"),
-        VM_stress =("VM_stress",   "sum"),
-        PDD_lat   =("PDD_latente", "sum"),
-        PDD_sim   =("PDD_simulee", "sum"),
-        PV_mob    =("PV_mob",      "sum"),
-        PV_mob_s  =("PV_mob_sim",  "sum"),
+def _fmt_num(val, signed: bool = False) -> str:
+    if not isinstance(val, (int, float)) or pd.isna(val):
+        return "—"
+    s = f"{val:+,.1f}" if signed else f"{val:,.1f}"
+    return s.replace(",", " ")   # fine no-break space as thousands sep
+
+
+def _td(val, signed: bool = False) -> str:
+    txt = _fmt_num(val, signed)
+    if not isinstance(val, (int, float)) or pd.isna(val) or val == 0:
+        return f'<td class="n">{txt}</td>'
+    cls = "neg" if val < 0 else "pos"
+    return f'<td class="n {cls}">{txt}</td>'
+
+
+def _render_stress_html_table(df_j: pd.DataFrame, levels: list[str], sc_name: str) -> None:
+    """Génère et affiche un tableau HTML stylé hiérarchique Canton→Classe→Sous-classe."""
+    present = [c for c in levels if c in df_j.columns]
+    if not present:
+        st.info("Aucune colonne de regroupement disponible.")
+        return
+
+    AGG = dict(
+        vm_i=("VM_INIT",     "sum"), vm_s=("VM_stress",   "sum"),
+        pl=  ("PDD_latente", "sum"), ps=  ("PDD_simulee",  "sum"),
+        ml=  ("PV_mob",      "sum"), ms=  ("PV_mob_sim",   "sum"),
     )
-    s = 1e6
+    S = 1e6
 
-    def _metrics(g: pd.DataFrame) -> pd.DataFrame:
-        g = g.copy()
-        g["VM initiale (M€)"]  = g["VM_init"]  / s
-        g["VM stressée (M€)"]  = g["VM_stress"] / s
-        g["Impact VM (M€)"]    = (g["VM_stress"] - g["VM_init"]) / s
-        g["PDD latente (M€)"]  = g["PDD_lat"] / s
-        g["PDD simulée (M€)"]  = g["PDD_sim"] / s
-        g["Δ PDD (M€)"]        = (g["PDD_sim"] - g["PDD_lat"]) / s
-        g["PV mob (M€)"]       = g["PV_mob"]  / s
-        g["PV mob sim. (M€)"]  = g["PV_mob_s"] / s
-        g["Δ PV mob (M€)"]     = (g["PV_mob_s"] - g["PV_mob"]) / s
-        return g
+    def _row_vals(g):
+        vm_i, vm_s = g["VM_INIT"].sum()/S, g["VM_stress"].sum()/S
+        pl,   ps   = g["PDD_latente"].sum()/S, g["PDD_simulee"].sum()/S
+        ml,   ms   = g["PV_mob"].sum()/S,  g["PV_mob_sim"].sum()/S
+        return vm_i, vm_s, vm_s-vm_i, pl, ps, ps-pl, ml, ms, ms-ml
 
-    # Agrégation au niveau le plus fin (tous les niveaux)
-    present = [c for c in levels if c in df.columns]
-    detail = df.groupby(present, dropna=False).agg(**agg_cols).reset_index()
-    detail = _metrics(detail)
+    CSS = """
+    <style>
+      .st-wrap{overflow-x:auto;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,.12);margin-bottom:16px}
+      .st-tbl{border-collapse:collapse;width:100%;font-family:'Segoe UI',Arial,sans-serif;font-size:12.5px}
+      .st-tbl thead tr th{
+        background:#0f2b4c;color:#fff;padding:9px 11px;
+        white-space:nowrap;border:none;
+      }
+      .st-tbl thead tr th.lbl{text-align:left}
+      .st-tbl thead tr th.n{text-align:right}
+      /* canton */
+      .r0 td{background:#1e40af;color:#fff;font-weight:700;
+              padding:8px 11px;border-bottom:2px solid #1e3a8a}
+      /* classe */
+      .r1 td{background:#dbeafe;color:#1e3a8a;font-weight:600;
+              padding:7px 11px;border-bottom:1px solid #bfdbfe}
+      /* sous-classe */
+      .r2 td{background:#f8fafc;color:#334155;
+              padding:5px 11px;border-bottom:1px solid #e2e8f0}
+      .r2:hover td{background:#f0f4ff}
+      .n{text-align:right!important}
+      .neg{color:#dc2626;font-weight:600}
+      .pos{color:#16a34a;font-weight:600}
+      .lbl-0{padding-left:10px!important}
+      .lbl-1{padding-left:24px!important}
+      .lbl-2{padding-left:42px!important}
+    </style>
+    """
 
-    rows = []
-    num_cols = ["VM initiale (M€)", "VM stressée (M€)", "Impact VM (M€)",
-                "PDD latente (M€)", "PDD simulée (M€)", "Δ PDD (M€)",
-                "PV mob (M€)", "PV mob sim. (M€)", "Δ PV mob (M€)"]
+    HDR_LABELS = [
+        ("VM init. (M€)",    False), ("VM stress. (M€)", False),
+        ("Impact VM (M€)",   True),
+        ("PDD lat. (M€)",    False), ("PDD sim. (M€)",   False),
+        ("Δ PDD (M€)",       True),
+        ("PV mob (M€)",      False), ("PV mob sim. (M€)", False),
+        ("Δ PV mob (M€)",    True),
+    ]
 
-    # Parcours hiérarchique : pour chaque canton → pour chaque classe → sous-classes
-    for canton, grp_canton in detail.groupby(present[0], dropna=False, sort=True):
-        # Ligne canton (total)
-        tot = {c: grp_canton[c].sum() for c in num_cols}
-        rows.append({present[0]: f"▶ {canton}", **{c: "" for c in present[1:]}, **tot, "_level": 0})
+    def _header_row() -> str:
+        ths = "".join(f'<th class="lbl">{c}</th>' for c in present)
+        ths += "".join(f'<th class="n">{h}</th>' for h, _ in HDR_LABELS)
+        return f"<thead><tr>{ths}</tr></thead>"
 
-        if len(present) > 1:
-            for classe, grp_classe in grp_canton.groupby(present[1], dropna=False, sort=True):
-                tot2 = {c: grp_classe[c].sum() for c in num_cols}
-                rows.append({present[0]: "", present[1]: f"  {classe}",
-                              **({present[2]: ""} if len(present) > 2 else {}),
-                              **tot2, "_level": 1})
+    def _data_row(level: int, labels: list, vals: tuple) -> str:
+        signed = [h[1] for h in HDR_LABELS]
+        lbl_cls = f"lbl-{level}"
+        tds = ""
+        for i, lbl in enumerate(labels):
+            indent = lbl_cls if i == level else ""
+            tds += f'<td class="{indent}">{lbl}</td>'
+        tds += "".join(_td(v, signed[i]) for i, v in enumerate(vals))
+        return f'<tr class="r{level}">{tds}</tr>'
 
-                if len(present) > 2:
-                    for _, row in grp_classe.sort_values(present[2]).iterrows():
-                        rows.append({present[0]: "", present[1]: "",
-                                     present[2]: f"    {row[present[2]]}",
-                                     **{c: row[c] for c in num_cols}, "_level": 2})
+    body = "<tbody>"
+    n = len(present)
 
-    result = pd.DataFrame(rows)
-    return result, num_cols, present
+    for canton, g0 in df_j.groupby(present[0], dropna=False, sort=True):
+        v0 = _row_vals(g0)
+        lbls0 = [str(canton)] + [""] * (n - 1)
+        body += _data_row(0, lbls0, v0)
+
+        if n > 1:
+            for classe, g1 in g0.groupby(present[1], dropna=False, sort=True):
+                v1 = _row_vals(g1)
+                lbls1 = ["", str(classe)] + [""] * (n - 2)
+                body += _data_row(1, lbls1, v1)
+
+                if n > 2:
+                    for sc_val, g2 in g1.groupby(present[2], dropna=False, sort=True):
+                        v2 = _row_vals(g2)
+                        lbls2 = ["", "", str(sc_val)]
+                        body += _data_row(2, lbls2, v2)
+
+    body += "</tbody>"
+    html = f'{CSS}<div class="st-wrap"><table class="st-tbl">{_header_row()}{body}</table></div>'
+    components.html(html, height=min(52 * (len(df_j) + 10), 650), scrolling=True)
 
 
-def _bar_impact(agg: pd.DataFrame, x_col: str, title: str, key: str) -> None:
-    vals = pd.to_numeric(agg["Impact VM (M€)"], errors="coerce").fillna(0)
+def _bar_impact(df: pd.DataFrame, group_col: str, title: str, key: str) -> None:
+    agg = (
+        df.groupby(group_col, dropna=False)
+        .agg(vi=("VM_INIT", "sum"), vs=("VM_stress", "sum"))
+        .reset_index()
+    )
+    agg["impact"] = (agg["vs"] - agg["vi"]) / 1e6
+    agg = agg.sort_values("impact")
     fig = go.Figure(go.Bar(
-        x=agg[x_col],
-        y=vals,
-        marker_color=["#d62728" if v < 0 else "#2ca02c" for v in vals],
-        text=[f"{v:+.1f}" for v in vals],
+        x=agg[group_col].astype(str),
+        y=agg["impact"],
+        marker_color=["#dc2626" if v < 0 else "#16a34a" for v in agg["impact"]],
+        text=[f"{v:+.1f}" for v in agg["impact"]],
         textposition="outside",
     ))
     fig.update_layout(
         title=title, height=300,
         margin=dict(l=20, r=20, t=50, b=60),
         yaxis_title="M€", xaxis_tickangle=-20,
+        plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
     )
     st.plotly_chart(fig, use_container_width=True, key=key)
 
@@ -467,41 +530,11 @@ def _render_stress_results(
 
         # ── Graphique par classe d'actifs ──
         if CLASS_COL in df_j.columns:
-            cls_agg = (
-                df_j.groupby(CLASS_COL, dropna=False)
-                .agg(VM_init=("VM_INIT","sum"), VM_stress=("VM_stress","sum"))
-                .reset_index()
-            )
-            cls_agg["Impact VM (M€)"] = (cls_agg["VM_stress"] - cls_agg["VM_init"]) / 1e6
-            cls_agg = cls_agg.rename(columns={CLASS_COL: "Classe d'actifs"})
-            _bar_impact(cls_agg, "Classe d'actifs",
+            _bar_impact(df_j, CLASS_COL,
                         "Impact VM par classe d'actifs (M€)", f"bar_{sc_name}")
 
         # ── Tableau hiérarchique Canton → Classe → Sous-classe ──
-        levels = [CANTON_COL, CLASS_COL, SCLASS_COL]
-        hier, num_cols, present = _agg_stress_hier(df_j, levels)
-
-        fmt_pos = {c: "{:,.1f}" for c in num_cols if not c.startswith(("Δ", "Impact"))}
-        fmt_sgn = {c: "{:+,.1f}" for c in num_cols if c.startswith(("Δ", "Impact"))}
-
-        def _style_hier(row):
-            lvl = row.get("_level", 2)
-            if lvl == 0:
-                return ["font-weight:bold; background:#f0f2f6"] * len(row)
-            if lvl == 1:
-                return ["background:#f8f9fb"] * len(row)
-            return [""] * len(row)
-
-        display_cols = present + num_cols
-        df_display = hier[display_cols + ["_level"]].copy()
-
-        st.dataframe(
-            df_display.drop(columns=["_level"]).style
-            .apply(_style_hier, axis=1, subset=display_cols)
-            .format({**fmt_pos, **fmt_sgn}, na_rep=""),
-            use_container_width=True,
-            height=min(40 * len(df_display) + 40, 700),
-        )
+        _render_stress_html_table(df_j, [CANTON_COL, CLASS_COL, SCLASS_COL], sc_name)
 
         st.markdown("---")
 
