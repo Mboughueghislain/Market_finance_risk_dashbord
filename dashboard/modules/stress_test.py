@@ -93,7 +93,11 @@ def _write_param_file(scenarios: list[dict], date_sim: str) -> None:
     param = _py_path(_PARAM_WIN)
     param.parent.mkdir(parents=True, exist_ok=True)
     param.write_text(content, encoding="utf-8")
-    _py_path(_RESULTS_WIN).mkdir(parents=True, exist_ok=True)
+    # Nettoie les anciens résultats avant chaque run
+    res_dir = _py_path(_RESULTS_WIN)
+    res_dir.mkdir(parents=True, exist_ok=True)
+    for old in res_dir.glob("*.json"):
+        old.unlink(missing_ok=True)
 
 
 # =============================================================================
@@ -418,9 +422,14 @@ def render_stress_tab(df_selection: pd.DataFrame, date_fin) -> None:
         else:
             rc = proc.returncode if proc else -1
             errors, tail = _check_sas_log()
-            if rc == 0 and not errors:
+            # SAS retourne code 1 en cas de warnings : on vérifie la présence du JSON
+            results_exist = bool(
+                list(_py_path(_RESULTS_WIN).glob("*.json"))
+            ) if _py_path(_RESULTS_WIN).exists() else False
+            if not errors and results_exist:
+                # Succès réel : JSON produit, aucune ligne ERROR dans le log
                 st.session_state["sas_status"] = "done"
-                st.session_state["sas_rc"] = 0
+                st.session_state["sas_rc"] = rc
                 st.session_state["sas_errors"] = []
                 st.session_state["sas_log_tail"] = []
             else:
