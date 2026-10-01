@@ -439,26 +439,43 @@ def _render_stress_html_table(df_j: pd.DataFrame, levels: list[str], sc_name: st
     components.html(html, height=height, scrolling=False)
 
 
-def _bar_impact(df: pd.DataFrame, group_col: str, title: str, key: str) -> None:
+def _waterfall_chart(df_j: pd.DataFrame, group_col: str, vm_b: float, vm_st: float, key: str) -> None:
+    """Cascade : VM initiale → impact par classe → VM stressée."""
     agg = (
-        df.groupby(group_col, dropna=False)
+        df_j.groupby(group_col, dropna=False)
         .agg(vi=("VM_INIT", "sum"), vs=("VM_stress", "sum"))
         .reset_index()
     )
     agg["impact"] = (agg["vs"] - agg["vi"]) / 1e6
-    agg = agg.sort_values("impact")
-    fig = go.Figure(go.Bar(
-        x=agg[group_col].astype(str),
-        y=agg["impact"],
-        marker_color=["#dc2626" if v < 0 else "#16a34a" for v in agg["impact"]],
-        text=[f"{v:+.1f}" for v in agg["impact"]],
-        textposition="outside",
+    agg = agg[agg["impact"].abs() > 0.01].sort_values("impact")
+
+    measures = ["absolute"] + ["relative"] * len(agg) + ["total"]
+    x_labels = ["VM initiale"] + agg[group_col].astype(str).tolist() + ["VM stressée"]
+    y_values  = [vm_b] + agg["impact"].tolist() + [vm_st]
+    texts     = [f"{vm_b:,.0f}".replace(",", " ")] \
+                + [f"{v:+.1f}" for v in agg["impact"]] \
+                + [f"{vm_st:,.0f}".replace(",", " ")]
+    colors    = ["#714A80"] \
+                + ["#d62728" if v < 0 else "#2ca02c" for v in agg["impact"]] \
+                + ["#4e3059"]
+
+    fig = go.Figure(go.Waterfall(
+        measure=measures, x=x_labels, y=y_values,
+        text=texts, textposition="outside",
+        connector={"line": {"color": "#c4a8d4", "width": 1, "dash": "dot"}},
+        increasing={"marker": {"color": "#2ca02c"}},
+        decreasing={"marker": {"color": "#d62728"}},
+        totals={"marker": {"color": "#714A80"}},
     ))
+    fig.update_traces(textfont=dict(size=11))
     fig.update_layout(
-        title=title, height=300,
-        margin=dict(l=20, r=20, t=50, b=60),
+        title="Impact VM par classe d'actifs — vue cascade (M€)",
+        height=370,
+        margin=dict(l=20, r=20, t=50, b=70),
         yaxis_title="M€", xaxis_tickangle=-20,
         plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+        yaxis=dict(gridcolor="#e8d9f0"),
+        showlegend=False,
     )
     st.plotly_chart(fig, use_container_width=True, key=key)
 
@@ -543,6 +560,17 @@ def _render_stress_results(
 
         st.markdown(f"### 📋 {sc_name}")
 
+        # ── Sous-titre contextuel ──
+        n_impacted = int((df_j["prix_sim"] != 1.0).sum()) if "prix_sim" in df_j.columns else 0
+        n_total    = len(df_j)
+        vm_impacted = df_j.loc[df_j["prix_sim"] != 1.0, VM_COL].sum() / s if "prix_sim" in df_j.columns else 0
+        pct_ptf    = vm_impacted / vm_b * 100 if vm_b else 0
+        st.caption(
+            f"📅 Date de simulation : **{date_sim}**"
+            f"　|　🎯 Titres impactés : **{n_impacted} / {n_total}**"
+            f"　|　📊 Part du portefeuille : **{pct_ptf:.1f} %**"
+        )
+
         # ── KPIs globaux ──
         c1, c2, c3, c4, c5 = st.columns(5)
         c1.metric("VM initiale (M€)",  f"{vm_b:,.1f}".replace(",", " "))
@@ -551,9 +579,7 @@ def _render_stress_results(
             delta=f"{imp:+,.1f} M€ ({imp/vm_b*100:+.2f} %)".replace(",", " ") if vm_b else None,
             delta_color="inverse",
         )
-        c3.metric(
-            "PDD latente (M€)", f"{pdd_l:,.1f}".replace(",", " "),
-        )
+        c3.metric("PDD latente (M€)", f"{pdd_l:,.1f}".replace(",", " "))
         c4.metric(
             "PDD simulée (M€)", f"{pdd_s:,.1f}".replace(",", " "),
             delta=f"{pdd_s-pdd_l:+,.1f} M€".replace(",", " "),
@@ -565,10 +591,9 @@ def _render_stress_results(
             delta_color="inverse",
         )
 
-        # ── Graphique par classe d'actifs ──
+        # ── Graphique cascade (waterfall) ──
         if CLASS_COL in df_j.columns:
-            _bar_impact(df_j, CLASS_COL,
-                        "Impact VM par classe d'actifs (M€)", f"bar_{sc_name}")
+            _waterfall_chart(df_j, CLASS_COL, vm_b, vm_st, f"wf_{sc_name}")
 
         # ── Tableau hiérarchique Canton → Classe → Sous-classe ──
         _render_stress_html_table(df_j, [CANTON_COL, CLASS_COL, SCLASS_COL], sc_name)
