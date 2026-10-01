@@ -288,38 +288,71 @@ def _render_scenario_form(idx: int, scenario: dict, df_selection: pd.DataFrame) 
 # Affichage des résultats
 # =============================================================================
 
-def _agg_stress(df: pd.DataFrame, group_col: str) -> pd.DataFrame:
-    """Agrège les métriques de stress par dimension (classe, sous-classe, canton)."""
-    g = df.groupby(group_col, dropna=False).agg(
+def _agg_stress_hier(df: pd.DataFrame, levels: list[str]) -> pd.DataFrame:
+    """Agrège les métriques par niveaux hiérarchiques + ligne TOTAL par groupe."""
+    agg_cols = dict(
         VM_init   =("VM_INIT",     "sum"),
         VM_stress =("VM_stress",   "sum"),
         PDD_lat   =("PDD_latente", "sum"),
         PDD_sim   =("PDD_simulee", "sum"),
         PV_mob    =("PV_mob",      "sum"),
         PV_mob_s  =("PV_mob_sim",  "sum"),
-    ).reset_index()
+    )
     s = 1e6
-    g["VM initiale (M€)"]  = g["VM_init"]  / s
-    g["VM stressée (M€)"]  = g["VM_stress"] / s
-    g["Impact VM (M€)"]    = (g["VM_stress"] - g["VM_init"]) / s
-    g["PDD latente (M€)"]  = g["PDD_lat"] / s
-    g["PDD simulée (M€)"]  = g["PDD_sim"] / s
-    g["Δ PDD (M€)"]        = (g["PDD_sim"] - g["PDD_lat"]) / s
-    g["PV mob (M€)"]       = g["PV_mob"]  / s
-    g["PV mob sim. (M€)"]  = g["PV_mob_s"] / s
-    g["Δ PV mob (M€)"]     = (g["PV_mob_s"] - g["PV_mob"]) / s
-    cols_num = ["VM initiale (M€)", "VM stressée (M€)", "Impact VM (M€)",
+
+    def _metrics(g: pd.DataFrame) -> pd.DataFrame:
+        g = g.copy()
+        g["VM initiale (M€)"]  = g["VM_init"]  / s
+        g["VM stressée (M€)"]  = g["VM_stress"] / s
+        g["Impact VM (M€)"]    = (g["VM_stress"] - g["VM_init"]) / s
+        g["PDD latente (M€)"]  = g["PDD_lat"] / s
+        g["PDD simulée (M€)"]  = g["PDD_sim"] / s
+        g["Δ PDD (M€)"]        = (g["PDD_sim"] - g["PDD_lat"]) / s
+        g["PV mob (M€)"]       = g["PV_mob"]  / s
+        g["PV mob sim. (M€)"]  = g["PV_mob_s"] / s
+        g["Δ PV mob (M€)"]     = (g["PV_mob_s"] - g["PV_mob"]) / s
+        return g
+
+    # Agrégation au niveau le plus fin (tous les niveaux)
+    present = [c for c in levels if c in df.columns]
+    detail = df.groupby(present, dropna=False).agg(**agg_cols).reset_index()
+    detail = _metrics(detail)
+
+    rows = []
+    num_cols = ["VM initiale (M€)", "VM stressée (M€)", "Impact VM (M€)",
                 "PDD latente (M€)", "PDD simulée (M€)", "Δ PDD (M€)",
                 "PV mob (M€)", "PV mob sim. (M€)", "Δ PV mob (M€)"]
-    return g[[group_col] + cols_num].sort_values("Impact VM (M€)")
+
+    # Parcours hiérarchique : pour chaque canton → pour chaque classe → sous-classes
+    for canton, grp_canton in detail.groupby(present[0], dropna=False, sort=True):
+        # Ligne canton (total)
+        tot = {c: grp_canton[c].sum() for c in num_cols}
+        rows.append({present[0]: f"▶ {canton}", **{c: "" for c in present[1:]}, **tot, "_level": 0})
+
+        if len(present) > 1:
+            for classe, grp_classe in grp_canton.groupby(present[1], dropna=False, sort=True):
+                tot2 = {c: grp_classe[c].sum() for c in num_cols}
+                rows.append({present[0]: "", present[1]: f"  {classe}",
+                              **({present[2]: ""} if len(present) > 2 else {}),
+                              **tot2, "_level": 1})
+
+                if len(present) > 2:
+                    for _, row in grp_classe.sort_values(present[2]).iterrows():
+                        rows.append({present[0]: "", present[1]: "",
+                                     present[2]: f"    {row[present[2]]}",
+                                     **{c: row[c] for c in num_cols}, "_level": 2})
+
+    result = pd.DataFrame(rows)
+    return result, num_cols, present
 
 
 def _bar_impact(agg: pd.DataFrame, x_col: str, title: str, key: str) -> None:
+    vals = pd.to_numeric(agg["Impact VM (M€)"], errors="coerce").fillna(0)
     fig = go.Figure(go.Bar(
         x=agg[x_col],
-        y=agg["Impact VM (M€)"],
-        marker_color=["#d62728" if v < 0 else "#2ca02c" for v in agg["Impact VM (M€)"]],
-        text=[f"{v:+.1f}" for v in agg["Impact VM (M€)"]],
+        y=vals,
+        marker_color=["#d62728" if v < 0 else "#2ca02c" for v in vals],
+        text=[f"{v:+.1f}" for v in vals],
         textposition="outside",
     ))
     fig.update_layout(
@@ -432,30 +465,43 @@ def _render_stress_results(
             delta_color="inverse",
         )
 
-        # ── Onglets par dimension ──
-        DIMS = [
-            ("Canton",          CANTON_COL),
-            ("Classe d'actifs", CLASS_COL),
-            ("Sous-classe",     SCLASS_COL),
-        ]
-        tabs = st.tabs([d[0] for d in DIMS])
-        fmt = {
-            "VM initiale (M€)": "{:,.1f}", "VM stressée (M€)": "{:,.1f}",
-            "Impact VM (M€)":   "{:+,.1f}",
-            "PDD latente (M€)": "{:,.1f}", "PDD simulée (M€)": "{:,.1f}",
-            "Δ PDD (M€)":       "{:+,.1f}",
-            "PV mob (M€)":      "{:,.1f}", "PV mob sim. (M€)": "{:,.1f}",
-            "Δ PV mob (M€)":    "{:+,.1f}",
-        }
-        for tab, (label, gcol) in zip(tabs, DIMS):
-            with tab:
-                if gcol not in df_j.columns:
-                    st.info(f"Colonne '{gcol}' non disponible dans les données.")
-                    continue
-                agg = _agg_stress(df_j, gcol)
-                agg = agg.rename(columns={gcol: label})
-                _bar_impact(agg, label, f"Impact VM par {label} (M€)", f"bar_{sc_name}_{gcol}")
-                st.dataframe(agg.style.format(fmt), use_container_width=True)
+        # ── Graphique par classe d'actifs ──
+        if CLASS_COL in df_j.columns:
+            cls_agg = (
+                df_j.groupby(CLASS_COL, dropna=False)
+                .agg(VM_init=("VM_INIT","sum"), VM_stress=("VM_stress","sum"))
+                .reset_index()
+            )
+            cls_agg["Impact VM (M€)"] = (cls_agg["VM_stress"] - cls_agg["VM_init"]) / 1e6
+            cls_agg = cls_agg.rename(columns={CLASS_COL: "Classe d'actifs"})
+            _bar_impact(cls_agg, "Classe d'actifs",
+                        "Impact VM par classe d'actifs (M€)", f"bar_{sc_name}")
+
+        # ── Tableau hiérarchique Canton → Classe → Sous-classe ──
+        levels = [CANTON_COL, CLASS_COL, SCLASS_COL]
+        hier, num_cols, present = _agg_stress_hier(df_j, levels)
+
+        fmt_pos = {c: "{:,.1f}" for c in num_cols if not c.startswith(("Δ", "Impact"))}
+        fmt_sgn = {c: "{:+,.1f}" for c in num_cols if c.startswith(("Δ", "Impact"))}
+
+        def _style_hier(row):
+            lvl = row.get("_level", 2)
+            if lvl == 0:
+                return ["font-weight:bold; background:#f0f2f6"] * len(row)
+            if lvl == 1:
+                return ["background:#f8f9fb"] * len(row)
+            return [""] * len(row)
+
+        display_cols = present + num_cols
+        df_display = hier[display_cols + ["_level"]].copy()
+
+        st.dataframe(
+            df_display.drop(columns=["_level"]).style
+            .apply(_style_hier, axis=1, subset=display_cols)
+            .format({**fmt_pos, **fmt_sgn}, na_rep=""),
+            use_container_width=True,
+            height=min(40 * len(df_display) + 40, 700),
+        )
 
         st.markdown("---")
 
