@@ -411,6 +411,15 @@ def _render_stress_html_table(df_j: pd.DataFrame, levels: list[str], sc_name: st
                         lbls2 = ["", "", str(sc_val)]
                         body += _data_row(2, lbls2, v2)
 
+    # ── Ligne TOTAL ──
+    vt = _row_vals(df_j)
+    lbls_tot = ["TOTAL"] + [""] * (n - 1)
+    tot_tds = "".join(f'<td class="lbl-0" style="font-weight:700">{l}</td>' if i == 0
+                      else f'<td></td>' for i, l in enumerate(lbls_tot))
+    tot_tds += "".join(_td(v, h[1], h[2]) for v, h in zip(vt, HDR_LABELS))
+    body += (f'<tr style="background:#714A80;color:#fff;font-weight:700;'
+             f'border-top:3px solid #4e3059">{tot_tds}</tr>')
+
     body += "</tbody>"
     html = f'{CSS}<div class="st-wrap"><table class="st-tbl">{_header_row()}{body}</table></div>'
     components.html(html, height=min(52 * (len(df_j) + 10), 650), scrolling=True)
