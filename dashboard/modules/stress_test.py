@@ -379,7 +379,7 @@ def _render_stress_html_table(df_j: pd.DataFrame, levels: list[str], sc_name: st
 
     def _header_row() -> str:
         ths = "".join(f'<th class="lbl">{c}</th>' for c in present)
-        ths += "".join(f'<th class="n">{h}</th>' for h, _ in HDR_LABELS)
+        ths += "".join(f'<th class="n">{h}</th>' for h, _, __ in HDR_LABELS)
         return f"<thead><tr>{ths}</tr></thead>"
 
     def _data_row(level: int, labels: list, vals: tuple) -> str:
