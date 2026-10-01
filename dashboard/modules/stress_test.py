@@ -362,6 +362,14 @@ def _render_stress_html_table(df_j: pd.DataFrame, levels: list[str], sc_name: st
       .n{text-align:right!important}
       .neg{color:#d62728;font-weight:700}
       .pos{color:#2ca02c;font-weight:700}
+      /* Couleurs lisibles sur fond canton foncé */
+      .r0 td.neg{color:#ffb3b3!important}
+      .r0 td.pos{color:#86efac!important}
+      /* Ligne TOTAL : fond clair pour lisibilité rouge/vert */
+      .r-tot td{background:#c4a8d4;color:#1a1a2e;font-weight:800;
+                padding:9px 12px;border-top:3px solid #4e3059}
+      .r-tot td.neg{color:#d62728!important}
+      .r-tot td.pos{color:#2ca02c!important}
       /* ── Indentation libellés ── */
       .lbl-0{padding-left:12px!important}
       .lbl-1{padding-left:26px!important}
@@ -422,8 +430,7 @@ def _render_stress_html_table(df_j: pd.DataFrame, levels: list[str], sc_name: st
     tot_tds = "".join(f'<td class="lbl-0" style="font-weight:700">{l}</td>' if i == 0
                       else f'<td></td>' for i, l in enumerate(lbls_tot))
     tot_tds += "".join(_td(v, h[1], h[2]) for v, h in zip(vt, HDR_LABELS))
-    body += (f'<tr style="background:#714A80;color:#fff;font-weight:700;'
-             f'border-top:3px solid #4e3059">{tot_tds}</tr>')
+    body += f'<tr class="r-tot">{tot_tds}</tr>'
     n_rows += 1
 
     body += "</tbody>"
