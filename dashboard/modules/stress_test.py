@@ -323,7 +323,8 @@ def _render_stress_html_table(df_j: pd.DataFrame, levels: list[str], sc_name: st
     S = 1e6
 
     def _pct(num, denom):
-        return (num / denom * 100) if denom and abs(denom) > 1e-9 else float("nan")
+        # Seuil 0.1 M€ : en-dessous la base est trop faible pour un % significatif
+        return (num / denom * 100) if denom and abs(denom) >= 0.1 else float("nan")
 
     def _row_vals(g):
         vm_i, vm_s = g["VM_INIT"].sum()/S, g["VM_stress"].sum()/S
