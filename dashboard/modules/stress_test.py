@@ -393,23 +393,27 @@ def _render_stress_html_table(df_j: pd.DataFrame, levels: list[str], sc_name: st
 
     body = "<tbody>"
     n = len(present)
+    n_rows = 0
 
     for canton, g0 in df_j.groupby(present[0], dropna=False, sort=True):
         v0 = _row_vals(g0)
         lbls0 = [str(canton)] + [""] * (n - 1)
         body += _data_row(0, lbls0, v0)
+        n_rows += 1
 
         if n > 1:
             for classe, g1 in g0.groupby(present[1], dropna=False, sort=True):
                 v1 = _row_vals(g1)
                 lbls1 = ["", str(classe)] + [""] * (n - 2)
                 body += _data_row(1, lbls1, v1)
+                n_rows += 1
 
                 if n > 2:
                     for sc_val, g2 in g1.groupby(present[2], dropna=False, sort=True):
                         v2 = _row_vals(g2)
                         lbls2 = ["", "", str(sc_val)]
                         body += _data_row(2, lbls2, v2)
+                        n_rows += 1
 
     # ── Ligne TOTAL ──
     vt = _row_vals(df_j)
@@ -419,10 +423,12 @@ def _render_stress_html_table(df_j: pd.DataFrame, levels: list[str], sc_name: st
     tot_tds += "".join(_td(v, h[1], h[2]) for v, h in zip(vt, HDR_LABELS))
     body += (f'<tr style="background:#714A80;color:#fff;font-weight:700;'
              f'border-top:3px solid #4e3059">{tot_tds}</tr>')
+    n_rows += 1
 
     body += "</tbody>"
+    height = 42 + n_rows * 34 + 20   # header + lignes + marge
     html = f'{CSS}<div class="st-wrap"><table class="st-tbl">{_header_row()}{body}</table></div>'
-    components.html(html, height=min(52 * (len(df_j) + 10), 650), scrolling=True)
+    components.html(html, height=height, scrolling=False)
 
 
 def _bar_impact(df: pd.DataFrame, group_col: str, title: str, key: str) -> None:
