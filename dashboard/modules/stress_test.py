@@ -509,6 +509,9 @@ def render_stress_tab(df_selection: pd.DataFrame, date_fin) -> None:
 
         df_stressed = _load_stress_results()
         if df_stressed is not None and not df_stressed.empty:
+            with st.expander("🔍 Debug colonnes JSON SAS (temporaire)", expanded=True):
+                st.write("**Colonnes :**", list(df_stressed.columns))
+                st.dataframe(df_stressed.head(3))
             _render_stress_results(df_selection, df_stressed, date_sim_str)
         else:
             st.warning(
