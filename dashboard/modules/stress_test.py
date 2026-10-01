@@ -293,10 +293,9 @@ def _render_stress_results(
     df_stressed: pd.DataFrame,
     date_sim: str,
 ) -> None:
-    DATE_COL     = "DATE_TRANSPA"
-    VM_COL       = "VM_INIT"
-    CLASS_COL    = "CLASSIF_RF"
-    SUBCLASS_COL = "SOUS_CLASSIF_RF"
+    DATE_COL  = "DATE_TRANSPA"
+    VM_COL    = "VM_INIT"
+    CLASS_COL = "CLASSIF_RF"
 
     # VM de base à la date de simulation
     df_b = df_base.copy()
@@ -308,7 +307,11 @@ def _render_stress_results(
         return
     df_b = df_b[df_b[DATE_COL] == d_eff]
 
-    vm_base_total = df_b[VM_COL].sum() / 1e6 if VM_COL in df_b.columns else 0.0
+    if VM_COL not in df_b.columns:
+        st.error(f"Colonne '{VM_COL}' introuvable dans le portefeuille.")
+        return
+
+    vm_base_total = df_b[VM_COL].sum() / 1e6
 
     scenarios_in_results = (
         df_stressed["_scenario"].unique()
@@ -323,7 +326,16 @@ def _render_stress_results(
             else df_stressed
         )
 
-        vm_stress_total = df_sc[VM_COL].sum() / 1e6 if VM_COL in df_sc.columns else 0.0
+        # ── Jointure portefeuille × résultats SAS sur ID ──
+        # prix_sim = facteur multiplicatif (1 = prix inchangé, 0.95 = -5%)
+        ps_col = pd.to_numeric(df_sc["prix_sim"], errors="coerce") if "prix_sim" in df_sc.columns else pd.Series(dtype=float)
+        sc_map = df_sc.assign(prix_sim=ps_col).set_index("ID")["prix_sim"] if "ID" in df_sc.columns else pd.Series(dtype=float)
+
+        df_join = df_b.copy()
+        df_join["prix_sim"] = df_join["ID"].map(sc_map).fillna(1.0) if "ID" in df_join.columns else 1.0
+        df_join["VM_stress"] = df_join[VM_COL] * df_join["prix_sim"]
+
+        vm_stress_total = df_join["VM_stress"].sum() / 1e6
         impact_total    = vm_stress_total - vm_base_total
 
         st.markdown(f"### 📋 {sc_name}")
@@ -340,14 +352,16 @@ def _render_stress_results(
         )
 
         # ── Graphe & tableau par classe d'actifs ──
-        if CLASS_COL in df_b.columns and CLASS_COL in df_sc.columns:
-            g_b  = df_b.groupby(CLASS_COL)[VM_COL].sum().rename("VM_base")
-            g_s  = df_sc.groupby(CLASS_COL)[VM_COL].sum().rename("VM_stress")
-            agg  = pd.concat([g_b, g_s], axis=1).fillna(0)
+        if CLASS_COL in df_join.columns:
+            agg = (
+                df_join.groupby(CLASS_COL)
+                .agg(VM_base=("VM_INIT", "sum"), VM_stress=("VM_stress", "sum"))
+                .reset_index()
+            )
             agg["Impact (M€)"]      = (agg["VM_stress"] - agg["VM_base"]) / 1e6
             agg["VM initiale (M€)"] = agg["VM_base"]  / 1e6
             agg["VM stressée (M€)"] = agg["VM_stress"] / 1e6
-            agg = agg.drop(columns=["VM_base", "VM_stress"]).reset_index()
+            agg = agg.drop(columns=["VM_base", "VM_stress"])
             agg = agg.rename(columns={CLASS_COL: "Classe d'actifs"})
             agg = agg.sort_values("Impact (M€)")
 
