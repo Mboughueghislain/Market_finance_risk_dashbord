@@ -434,9 +434,9 @@ def _render_stress_results(
 
         # ── Onglets par dimension ──
         DIMS = [
+            ("Canton",          CANTON_COL),
             ("Classe d'actifs", CLASS_COL),
             ("Sous-classe",     SCLASS_COL),
-            ("Canton",          CANTON_COL),
         ]
         tabs = st.tabs([d[0] for d in DIMS])
         fmt = {
