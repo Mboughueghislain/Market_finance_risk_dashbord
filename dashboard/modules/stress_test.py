@@ -510,8 +510,11 @@ def render_stress_tab(df_selection: pd.DataFrame, date_fin) -> None:
         df_stressed = _load_stress_results()
         if df_stressed is not None and not df_stressed.empty:
             with st.expander("🔍 Debug colonnes JSON SAS (temporaire)", expanded=True):
-                st.write("**Colonnes :**", list(df_stressed.columns))
-                st.dataframe(df_stressed.head(3))
+                st.write("**Colonnes JSON SAS :**", list(df_stressed.columns))
+                st.dataframe(df_stressed.head(10))
+                st.write("**Valeurs `stress` (non-NaN) :**", df_stressed["stress"].dropna().head(10).tolist() if "stress" in df_stressed.columns else "—")
+                st.write("**Valeurs `prix_sim` (non-NaN) :**", df_stressed["prix_sim"].dropna().head(10).tolist() if "prix_sim" in df_stressed.columns else "—")
+                st.write("**Colonnes df_selection (portefeuille) :**", list(df_selection.columns))
             _render_stress_results(df_selection, df_stressed, date_sim_str)
         else:
             st.warning(
