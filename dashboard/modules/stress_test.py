@@ -423,11 +423,22 @@ def render_stress_tab(df_selection: pd.DataFrame, date_fin) -> None:
             rc = proc.returncode if proc else -1
             errors, tail = _check_sas_log()
             # SAS retourne code 1 en cas de warnings : on vérifie la présence du JSON
-            results_exist = bool(
-                list(_py_path(_RESULTS_WIN).glob("*.json"))
-            ) if _py_path(_RESULTS_WIN).exists() else False
+            import os
+            res_dir = _py_path(_RESULTS_WIN)
+            dir_exists = res_dir.exists()
+            try:
+                dir_contents = os.listdir(res_dir) if dir_exists else []
+            except Exception:
+                dir_contents = []
+            json_files = [f for f in dir_contents if f.lower().endswith(".json")]
+            results_exist = bool(json_files)
+            st.session_state["sas_debug"] = {
+                "rc": rc,
+                "res_dir": str(res_dir),
+                "dir_exists": dir_exists,
+                "dir_contents": dir_contents,
+            }
             if not errors and results_exist:
-                # Succès réel : JSON produit, aucune ligne ERROR dans le log
                 st.session_state["sas_status"] = "done"
                 st.session_state["sas_rc"] = rc
                 st.session_state["sas_errors"] = []
@@ -443,6 +454,10 @@ def render_stress_tab(df_selection: pd.DataFrame, date_fin) -> None:
         rc_val    = st.session_state.get("sas_rc", -1)
         err_lines = st.session_state.get("sas_errors", [])
         tail_lines = st.session_state.get("sas_log_tail", [])
+        dbg = st.session_state.get("sas_debug", {})
+        if dbg:
+            with st.expander("🔍 Debug chemin résultats"):
+                st.json(dbg)
 
         st.error(f"❌ Erreur lors de l'exécution SAS (code retour : {rc_val})")
 
