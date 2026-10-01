@@ -22,9 +22,9 @@ _SAS_PROG_WIN = (
 )
 _PARAM_WIN   = r"C:\temp\param_run.txt"
 _LOG_WIN     = r"C:\temp\logSAS.txt"
-# Répertoire réel où SAS écrit ses JSON (partage réseau via Y:)
+# Répertoire réel où SAS écrit ses JSON — chemin UNC (Y: non disponible depuis WSL2)
 _RESULTS_WIN = (
-    r"Y:\Direction des Risques\4. Risques Financiers"
+    r"\\sv61file0024\Bureautique\Direction des Risques\4. Risques Financiers"
     r"\00-0-REPORTING\00 - PROD RRF\outSAS\Json"
 )
 _STRESS_JSON_NAME = "STRESS_TEST.json"
