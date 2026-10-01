@@ -156,24 +156,26 @@ def _check_sas_log() -> tuple[list[str], list[str]]:
 # =============================================================================
 
 def _stress_json_exists_win() -> bool:
-    """Vérifie l'existence du STRESS_TEST.json via cmd.exe (contourne WSL2 et réseau)."""
+    """Vérifie l'existence du STRESS_TEST.json via PowerShell (accès réseau avec credentials)."""
     win_path = f"{_RESULTS_WIN}\\{_STRESS_JSON_NAME}"
     try:
         r = subprocess.run(
-            ["cmd.exe", "/c", f'if exist "{win_path}" echo FOUND'],
-            capture_output=True, text=True, timeout=10,
+            ["powershell.exe", "-NonInteractive", "-Command",
+             f"Test-Path '{win_path}'"],
+            capture_output=True, text=True, timeout=15,
         )
-        return "FOUND" in r.stdout
+        return r.stdout.strip().lower() == "true"
     except Exception:
         return False
 
 
-def _read_json_via_cmd(win_path: str) -> Optional[str]:
-    """Lit le contenu d'un fichier via cmd.exe /c type (fonctionne sur partage réseau)."""
+def _read_json_via_ps(win_path: str) -> Optional[str]:
+    """Lit le contenu d'un fichier via PowerShell (fonctionne sur partage réseau)."""
     try:
         r = subprocess.run(
-            ["cmd.exe", "/c", f'type "{win_path}"'],
-            capture_output=True, timeout=30,
+            ["powershell.exe", "-NonInteractive", "-Command",
+             f"Get-Content -Path '{win_path}' -Raw -Encoding UTF8"],
+            capture_output=True, timeout=60,
         )
         return r.stdout.decode("utf-8", errors="replace")
     except Exception:
@@ -182,7 +184,7 @@ def _read_json_via_cmd(win_path: str) -> Optional[str]:
 
 def _load_stress_results() -> Optional[pd.DataFrame]:
     win_path = f"{_RESULTS_WIN}\\{_STRESS_JSON_NAME}"
-    content = _read_json_via_cmd(win_path)
+    content = _read_json_via_ps(win_path)
     if not content:
         return None
     try:
