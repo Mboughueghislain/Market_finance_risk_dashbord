@@ -124,20 +124,25 @@ def _launch_sas() -> subprocess.Popen:
 # Lecture du log SAS
 # =============================================================================
 
-def _check_sas_log() -> list[str]:
+def _check_sas_log() -> tuple[list[str], list[str]]:
+    """Retourne (erreurs, dernières_lignes) du log SAS."""
     log = _py_path(_LOG_WIN)
     if not log.exists():
-        return [f"⚠️ Log SAS introuvable : {log}"]
+        return [f"⚠️ Log SAS introuvable : {log}"], []
     errors = []
+    all_lines = []
     try:
         with open(log, encoding="latin-1", errors="replace") as f:
             for line in f:
                 stripped = line.strip()
+                if stripped:
+                    all_lines.append(stripped)
                 if stripped.startswith("ERROR") or "ERROR:" in stripped:
                     errors.append(stripped)
     except Exception as e:
         errors.append(f"Impossible de lire le log : {e}")
-    return errors
+    tail = all_lines[-30:] if len(all_lines) > 30 else all_lines
+    return errors, tail
 
 
 # =============================================================================
@@ -411,20 +416,40 @@ def render_stress_tab(df_selection: pd.DataFrame, date_fin) -> None:
             time.sleep(2)
             st.rerun()
         else:
-            rc     = proc.returncode if proc else -1
-            errors = _check_sas_log()
+            rc = proc.returncode if proc else -1
+            errors, tail = _check_sas_log()
             if rc == 0 and not errors:
                 st.session_state["sas_status"] = "done"
                 st.session_state["sas_errors"] = []
+                st.session_state["sas_log_tail"] = []
             else:
                 st.session_state["sas_status"] = "error"
                 st.session_state["sas_errors"] = errors or [f"SAS a retourné le code {rc}"]
+                st.session_state["sas_log_tail"] = tail
             st.rerun()
 
     elif status == "error":
         st.error("❌ Erreur lors de l'exécution SAS")
-        for e in st.session_state.get("sas_errors", [])[:15]:
-            st.code(e, language=None)
+
+        err_lines = st.session_state.get("sas_errors", [])
+        tail_lines = st.session_state.get("sas_log_tail", [])
+
+        if err_lines:
+            st.markdown("**Lignes ERROR du log SAS :**")
+            for e in err_lines[:20]:
+                st.code(e, language=None)
+        elif tail_lines:
+            st.markdown("**Fin du log SAS (aucune ligne ERROR détectée) :**")
+            st.code("\n".join(tail_lines), language=None)
+        else:
+            st.code("Aucune information disponible dans le log.", language=None)
+
+        # Affiche le param_run.txt écrit
+        param_path = _py_path(_PARAM_WIN)
+        if param_path.exists():
+            with st.expander("📄 Contenu de param_run.txt (debug)"):
+                st.code(param_path.read_text(encoding="utf-8"), language=None)
+
         if st.button("🔄 Réinitialiser"):
             st.session_state["sas_status"] = "idle"
             st.rerun()
