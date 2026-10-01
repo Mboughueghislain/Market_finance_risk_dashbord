@@ -153,11 +153,24 @@ def _check_sas_log() -> tuple[list[str], list[str]]:
 # Chargement des JSON produits par SAS
 # =============================================================================
 
-def _load_stress_results() -> Optional[pd.DataFrame]:
+def _list_result_jsons() -> list[Path]:
+    """Liste les JSON dans le dossier résultats en contournant le cache WSL2."""
+    if _is_wsl():
+        try:
+            result = subprocess.run(
+                ["cmd.exe", "/c", f'dir /b "{_RESULTS_WIN}\\*.json" 2>nul'],
+                capture_output=True, text=True, timeout=10,
+            )
+            names = [n.strip() for n in result.stdout.splitlines() if n.strip().lower().endswith(".json")]
+            return [_py_path(_RESULTS_WIN) / n for n in names]
+        except Exception:
+            pass
     rdir = _py_path(_RESULTS_WIN)
-    if not rdir.exists():
-        return None
-    files = sorted(rdir.glob("*.json"))
+    return sorted(rdir.glob("*.json")) if rdir.exists() else []
+
+
+def _load_stress_results() -> Optional[pd.DataFrame]:
+    files = _list_result_jsons()
     if not files:
         return None
     dfs = []
@@ -423,20 +436,13 @@ def render_stress_tab(df_selection: pd.DataFrame, date_fin) -> None:
             rc = proc.returncode if proc else -1
             errors, tail = _check_sas_log()
             # SAS retourne code 1 en cas de warnings : on vérifie la présence du JSON
-            import os
-            res_dir = _py_path(_RESULTS_WIN)
-            dir_exists = res_dir.exists()
-            try:
-                dir_contents = os.listdir(res_dir) if dir_exists else []
-            except Exception:
-                dir_contents = []
-            json_files = [f for f in dir_contents if f.lower().endswith(".json")]
+            # On passe par cmd.exe pour contourner le cache WSL2
+            json_files = _list_result_jsons()
             results_exist = bool(json_files)
             st.session_state["sas_debug"] = {
                 "rc": rc,
-                "res_dir": str(res_dir),
-                "dir_exists": dir_exists,
-                "dir_contents": dir_contents,
+                "res_dir": str(_py_path(_RESULTS_WIN)),
+                "json_files_found": [str(f.name) for f in json_files],
             }
             if not errors and results_exist:
                 st.session_state["sas_status"] = "done"
