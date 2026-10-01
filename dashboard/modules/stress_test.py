@@ -288,16 +288,62 @@ def _render_scenario_form(idx: int, scenario: dict, df_selection: pd.DataFrame) 
 # Affichage des résultats
 # =============================================================================
 
+def _agg_stress(df: pd.DataFrame, group_col: str) -> pd.DataFrame:
+    """Agrège les métriques de stress par dimension (classe, sous-classe, canton)."""
+    g = df.groupby(group_col, dropna=False).agg(
+        VM_init   =("VM_INIT",     "sum"),
+        VM_stress =("VM_stress",   "sum"),
+        PDD_lat   =("PDD_latente", "sum"),
+        PDD_sim   =("PDD_simulee", "sum"),
+        PV_mob    =("PV_mob",      "sum"),
+        PV_mob_s  =("PV_mob_sim",  "sum"),
+    ).reset_index()
+    s = 1e6
+    g["VM initiale (M€)"]  = g["VM_init"]  / s
+    g["VM stressée (M€)"]  = g["VM_stress"] / s
+    g["Impact VM (M€)"]    = (g["VM_stress"] - g["VM_init"]) / s
+    g["PDD latente (M€)"]  = g["PDD_lat"] / s
+    g["PDD simulée (M€)"]  = g["PDD_sim"] / s
+    g["Δ PDD (M€)"]        = (g["PDD_sim"] - g["PDD_lat"]) / s
+    g["PV mob (M€)"]       = g["PV_mob"]  / s
+    g["PV mob sim. (M€)"]  = g["PV_mob_s"] / s
+    g["Δ PV mob (M€)"]     = (g["PV_mob_s"] - g["PV_mob"]) / s
+    cols_num = ["VM initiale (M€)", "VM stressée (M€)", "Impact VM (M€)",
+                "PDD latente (M€)", "PDD simulée (M€)", "Δ PDD (M€)",
+                "PV mob (M€)", "PV mob sim. (M€)", "Δ PV mob (M€)"]
+    return g[[group_col] + cols_num].sort_values("Impact VM (M€)")
+
+
+def _bar_impact(agg: pd.DataFrame, x_col: str, title: str, key: str) -> None:
+    fig = go.Figure(go.Bar(
+        x=agg[x_col],
+        y=agg["Impact VM (M€)"],
+        marker_color=["#d62728" if v < 0 else "#2ca02c" for v in agg["Impact VM (M€)"]],
+        text=[f"{v:+.1f}" for v in agg["Impact VM (M€)"]],
+        textposition="outside",
+    ))
+    fig.update_layout(
+        title=title, height=300,
+        margin=dict(l=20, r=20, t=50, b=60),
+        yaxis_title="M€", xaxis_tickangle=-20,
+    )
+    st.plotly_chart(fig, use_container_width=True, key=key)
+
+
 def _render_stress_results(
     df_base: pd.DataFrame,
     df_stressed: pd.DataFrame,
     date_sim: str,
 ) -> None:
-    DATE_COL  = "DATE_TRANSPA"
-    VM_COL    = "VM_INIT"
-    CLASS_COL = "CLASSIF_RF"
+    DATE_COL   = "DATE_TRANSPA"
+    VM_COL     = "VM_INIT"
+    VNC_COL    = "VNC"
+    PDD_COL    = "RSQ_CPTA_PDD"
+    CLASS_COL  = "CLASSIF_RF"
+    SCLASS_COL = "SOUS_CLASSIF_RF"
+    CANTON_COL = "CANTON"
 
-    # VM de base à la date de simulation
+    # ── Filtrage base à la date de simulation ──
     df_b = df_base.copy()
     df_b[DATE_COL] = pd.to_datetime(df_b[DATE_COL]).dt.date
     d_sim = pd.to_datetime(date_sim, dayfirst=True).date()
@@ -311,86 +357,105 @@ def _render_stress_results(
         st.error(f"Colonne '{VM_COL}' introuvable dans le portefeuille.")
         return
 
-    vm_base_total = df_b[VM_COL].sum() / 1e6
-
-    scenarios_in_results = (
+    scenarios = (
         df_stressed["_scenario"].unique()
         if "_scenario" in df_stressed.columns
         else ["stress"]
     )
 
-    for sc_name in scenarios_in_results:
+    for sc_name in scenarios:
         df_sc = (
             df_stressed[df_stressed["_scenario"] == sc_name]
             if "_scenario" in df_stressed.columns
             else df_stressed
         )
 
-        # ── Jointure portefeuille × résultats SAS sur ID ──
-        # prix_sim = facteur multiplicatif (1 = prix inchangé, 0.95 = -5%)
-        ps_col = pd.to_numeric(df_sc["prix_sim"], errors="coerce") if "prix_sim" in df_sc.columns else pd.Series(dtype=float)
-        sc_map = df_sc.assign(prix_sim=ps_col).set_index("ID")["prix_sim"] if "ID" in df_sc.columns else pd.Series(dtype=float)
+        # ── Jointure sur ID : application du facteur prix_sim ──
+        ps = pd.to_numeric(df_sc.get("prix_sim", pd.Series(dtype=float)), errors="coerce")
+        sc_map = df_sc.assign(prix_sim=ps).set_index("ID")["prix_sim"] if "ID" in df_sc.columns else pd.Series(dtype=float)
 
-        df_join = df_b.copy()
-        df_join["prix_sim"] = df_join["ID"].map(sc_map).fillna(1.0) if "ID" in df_join.columns else 1.0
-        df_join["VM_stress"] = df_join[VM_COL] * df_join["prix_sim"]
+        df_j = df_b.copy()
+        df_j["prix_sim"]  = df_j["ID"].map(sc_map).fillna(1.0) if "ID" in df_j.columns else 1.0
+        df_j["VM_stress"] = df_j[VM_COL] * df_j["prix_sim"]
 
-        vm_stress_total = df_join["VM_stress"].sum() / 1e6
-        impact_total    = vm_stress_total - vm_base_total
+        # ── PDD latente (existante) & simulée ──
+        if VNC_COL in df_j.columns:
+            vnc = pd.to_numeric(df_j[VNC_COL], errors="coerce").fillna(0)
+            df_j["PDD_latente"] = (
+                pd.to_numeric(df_j[PDD_COL], errors="coerce").fillna(0)
+                if PDD_COL in df_j.columns
+                else (vnc - pd.to_numeric(df_j[VM_COL], errors="coerce")).clip(lower=0)
+            )
+            df_j["PDD_simulee"] = (vnc - df_j["VM_stress"]).clip(lower=0)
+            vm_num = pd.to_numeric(df_j[VM_COL], errors="coerce").fillna(0)
+            df_j["PV_mob"]     = vm_num - vnc
+            df_j["PV_mob_sim"] = df_j["VM_stress"] - vnc
+        else:
+            for col in ("PDD_latente", "PDD_simulee", "PV_mob", "PV_mob_sim"):
+                df_j[col] = (
+                    pd.to_numeric(df_j[PDD_COL], errors="coerce").fillna(0)
+                    if col == "PDD_latente" and PDD_COL in df_j.columns
+                    else 0.0
+                )
+
+        # ── Totaux ──
+        s = 1e6
+        vm_b  = df_j[VM_COL].sum() / s
+        vm_st = df_j["VM_stress"].sum() / s
+        imp   = vm_st - vm_b
+        pdd_l = df_j["PDD_latente"].sum() / s
+        pdd_s = df_j["PDD_simulee"].sum() / s
+        pv    = df_j["PV_mob"].sum() / s
+        pv_s  = df_j["PV_mob_sim"].sum() / s
 
         st.markdown(f"### 📋 {sc_name}")
 
-        # ── KPIs ──
-        k1, k2, k3 = st.columns(3)
-        k1.metric("VM initiale (M€)",  f"{vm_base_total:,.1f}".replace(",", " "))
-        k2.metric("VM stressée (M€)",  f"{vm_stress_total:,.1f}".replace(",", " "))
-        k3.metric(
-            "Impact (M€)",
-            f"{impact_total:+,.1f}".replace(",", " "),
-            delta=f"{impact_total / vm_base_total * 100:+.2f} %" if vm_base_total else None,
+        # ── KPIs globaux ──
+        c1, c2, c3, c4, c5 = st.columns(5)
+        c1.metric("VM initiale (M€)",  f"{vm_b:,.1f}".replace(",", " "))
+        c2.metric(
+            "VM stressée (M€)", f"{vm_st:,.1f}".replace(",", " "),
+            delta=f"{imp:+,.1f} M€ ({imp/vm_b*100:+.2f} %)".replace(",", " ") if vm_b else None,
+            delta_color="inverse",
+        )
+        c3.metric(
+            "PDD latente (M€)", f"{pdd_l:,.1f}".replace(",", " "),
+        )
+        c4.metric(
+            "PDD simulée (M€)", f"{pdd_s:,.1f}".replace(",", " "),
+            delta=f"{pdd_s-pdd_l:+,.1f} M€".replace(",", " "),
+            delta_color="inverse",
+        )
+        c5.metric(
+            "PV mob (M€)", f"{pv:,.1f}".replace(",", " "),
+            delta=f"{pv_s-pv:+,.1f} M€".replace(",", " "),
             delta_color="inverse",
         )
 
-        # ── Graphe & tableau par classe d'actifs ──
-        if CLASS_COL in df_join.columns:
-            agg = (
-                df_join.groupby(CLASS_COL)
-                .agg(VM_base=("VM_INIT", "sum"), VM_stress=("VM_stress", "sum"))
-                .reset_index()
-            )
-            agg["Impact (M€)"]      = (agg["VM_stress"] - agg["VM_base"]) / 1e6
-            agg["VM initiale (M€)"] = agg["VM_base"]  / 1e6
-            agg["VM stressée (M€)"] = agg["VM_stress"] / 1e6
-            agg = agg.drop(columns=["VM_base", "VM_stress"])
-            agg = agg.rename(columns={CLASS_COL: "Classe d'actifs"})
-            agg = agg.sort_values("Impact (M€)")
-
-            fig = go.Figure(go.Bar(
-                x=agg["Classe d'actifs"],
-                y=agg["Impact (M€)"],
-                marker_color=[
-                    "#d62728" if v < 0 else "#2ca02c" for v in agg["Impact (M€)"]
-                ],
-                text=[f"{v:+.1f} M€" for v in agg["Impact (M€)"]],
-                textposition="outside",
-            ))
-            fig.update_layout(
-                title="Impact par classe d'actifs (M€)",
-                height=320,
-                margin=dict(l=20, r=20, t=50, b=60),
-                yaxis_title="M€",
-                xaxis_tickangle=-20,
-            )
-            st.plotly_chart(fig, use_container_width=True, key=f"stress_bar_{sc_name}")
-
-            st.dataframe(
-                agg.style.format({
-                    "VM initiale (M€)":  "{:,.1f}",
-                    "VM stressée (M€)":  "{:,.1f}",
-                    "Impact (M€)":       "{:+,.1f}",
-                }),
-                use_container_width=True,
-            )
+        # ── Onglets par dimension ──
+        DIMS = [
+            ("Classe d'actifs", CLASS_COL),
+            ("Sous-classe",     SCLASS_COL),
+            ("Canton",          CANTON_COL),
+        ]
+        tabs = st.tabs([d[0] for d in DIMS])
+        fmt = {
+            "VM initiale (M€)": "{:,.1f}", "VM stressée (M€)": "{:,.1f}",
+            "Impact VM (M€)":   "{:+,.1f}",
+            "PDD latente (M€)": "{:,.1f}", "PDD simulée (M€)": "{:,.1f}",
+            "Δ PDD (M€)":       "{:+,.1f}",
+            "PV mob (M€)":      "{:,.1f}", "PV mob sim. (M€)": "{:,.1f}",
+            "Δ PV mob (M€)":    "{:+,.1f}",
+        }
+        for tab, (label, gcol) in zip(tabs, DIMS):
+            with tab:
+                if gcol not in df_j.columns:
+                    st.info(f"Colonne '{gcol}' non disponible dans les données.")
+                    continue
+                agg = _agg_stress(df_j, gcol)
+                agg = agg.rename(columns={gcol: label})
+                _bar_impact(agg, label, f"Impact VM par {label} (M€)", f"bar_{sc_name}_{gcol}")
+                st.dataframe(agg.style.format(fmt), use_container_width=True)
 
         st.markdown("---")
 
@@ -523,12 +588,6 @@ def render_stress_tab(df_selection: pd.DataFrame, date_fin) -> None:
 
         df_stressed = _load_stress_results()
         if df_stressed is not None and not df_stressed.empty:
-            with st.expander("🔍 Debug colonnes JSON SAS (temporaire)", expanded=True):
-                st.write("**Colonnes JSON SAS :**", list(df_stressed.columns))
-                st.dataframe(df_stressed.head(10))
-                st.write("**Valeurs `stress` (non-NaN) :**", df_stressed["stress"].dropna().head(10).tolist() if "stress" in df_stressed.columns else "—")
-                st.write("**Valeurs `prix_sim` (non-NaN) :**", df_stressed["prix_sim"].dropna().head(10).tolist() if "prix_sim" in df_stressed.columns else "—")
-                st.write("**Colonnes df_selection (portefeuille) :**", list(df_selection.columns))
             _render_stress_results(df_selection, df_stressed, date_sim_str)
         else:
             st.warning(
