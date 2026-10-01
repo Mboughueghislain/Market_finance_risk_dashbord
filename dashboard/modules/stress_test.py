@@ -326,30 +326,35 @@ def _render_stress_html_table(df_j: pd.DataFrame, levels: list[str], sc_name: st
 
     CSS = """
     <style>
-      .st-wrap{overflow-x:auto;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,.12);margin-bottom:16px}
-      .st-tbl{border-collapse:collapse;width:100%;font-family:'Segoe UI',Arial,sans-serif;font-size:12.5px}
+      .st-wrap{overflow-x:auto;border-radius:8px;
+               box-shadow:0 2px 10px rgba(113,74,128,.20);margin-bottom:16px}
+      .st-tbl{border-collapse:collapse;width:100%;
+              font-family:'Segoe UI',Arial,sans-serif;font-size:12.5px}
+      /* ── Header ── */
       .st-tbl thead tr th{
-        background:#0f2b4c;color:#fff;padding:9px 11px;
-        white-space:nowrap;border:none;
+        background:#714A80;color:#fff;padding:9px 12px;
+        white-space:nowrap;border:none;font-weight:600;letter-spacing:.3px
       }
       .st-tbl thead tr th.lbl{text-align:left}
       .st-tbl thead tr th.n{text-align:right}
-      /* canton */
-      .r0 td{background:#1e40af;color:#fff;font-weight:700;
-              padding:8px 11px;border-bottom:2px solid #1e3a8a}
-      /* classe */
-      .r1 td{background:#dbeafe;color:#1e3a8a;font-weight:600;
-              padding:7px 11px;border-bottom:1px solid #bfdbfe}
-      /* sous-classe */
-      .r2 td{background:#f8fafc;color:#334155;
-              padding:5px 11px;border-bottom:1px solid #e2e8f0}
-      .r2:hover td{background:#f0f4ff}
+      /* ── Canton ── */
+      .r0 td{background:#4e3059;color:#fff;font-weight:700;
+             padding:8px 12px;border-bottom:2px solid #3d2447}
+      /* ── Classe ── */
+      .r1 td{background:#e8d9f0;color:#1a1a2e;font-weight:600;
+             padding:7px 12px;border-bottom:1px solid #c4a8d4}
+      /* ── Sous-classe ── */
+      .r2 td{background:#f5f0fa;color:#1a1a2e;
+             padding:5px 12px;border-bottom:1px solid #e0d4ea}
+      .r2:hover td{background:#ede4f5}
+      /* ── Numérique ── */
       .n{text-align:right!important}
-      .neg{color:#dc2626;font-weight:600}
-      .pos{color:#16a34a;font-weight:600}
-      .lbl-0{padding-left:10px!important}
-      .lbl-1{padding-left:24px!important}
-      .lbl-2{padding-left:42px!important}
+      .neg{color:#d62728;font-weight:700}
+      .pos{color:#2ca02c;font-weight:700}
+      /* ── Indentation libellés ── */
+      .lbl-0{padding-left:12px!important}
+      .lbl-1{padding-left:26px!important}
+      .lbl-2{padding-left:44px!important}
     </style>
     """
 
