@@ -289,15 +289,19 @@ def _render_scenario_form(idx: int, scenario: dict, df_selection: pd.DataFrame) 
 # Affichage des résultats
 # =============================================================================
 
-def _fmt_num(val, signed: bool = False) -> str:
+def _fmt_num(val, signed: bool = False, pct: bool = False) -> str:
     if not isinstance(val, (int, float)) or pd.isna(val):
         return "—"
-    s = f"{val:+,.1f}" if signed else f"{val:,.1f}"
-    return s.replace(",", " ")   # fine no-break space as thousands sep
+    if pct:
+        s = f"{val:+.2f} %" if signed else f"{val:.2f} %"
+    else:
+        s = f"{val:+,.1f}" if signed else f"{val:,.1f}"
+        s = s.replace(",", " ")
+    return s
 
 
-def _td(val, signed: bool = False) -> str:
-    txt = _fmt_num(val, signed)
+def _td(val, signed: bool = False, pct: bool = False) -> str:
+    txt = _fmt_num(val, signed, pct)
     if not isinstance(val, (int, float)) or pd.isna(val) or val == 0:
         return f'<td class="n">{txt}</td>'
     cls = "neg" if val < 0 else "pos"
@@ -318,11 +322,17 @@ def _render_stress_html_table(df_j: pd.DataFrame, levels: list[str], sc_name: st
     )
     S = 1e6
 
+    def _pct(num, denom):
+        return (num / denom * 100) if denom and abs(denom) > 1e-9 else float("nan")
+
     def _row_vals(g):
         vm_i, vm_s = g["VM_INIT"].sum()/S, g["VM_stress"].sum()/S
         pl,   ps   = g["PDD_latente"].sum()/S, g["PDD_simulee"].sum()/S
         ml,   ms   = g["PV_mob"].sum()/S,  g["PV_mob_sim"].sum()/S
-        return vm_i, vm_s, vm_s-vm_i, pl, ps, ps-pl, ml, ms, ms-ml
+        d_vm  = vm_s - vm_i;  d_pl = ps - pl;  d_ml = ms - ml
+        return (vm_i, vm_s, d_vm, _pct(d_vm, vm_i),
+                pl, ps, d_pl, _pct(d_pl, pl),
+                ml, ms, d_ml, _pct(d_ml, ml))
 
     CSS = """
     <style>
@@ -359,12 +369,12 @@ def _render_stress_html_table(df_j: pd.DataFrame, levels: list[str], sc_name: st
     """
 
     HDR_LABELS = [
-        ("VM init. (M€)",    False), ("VM stress. (M€)", False),
-        ("Impact VM (M€)",   True),
-        ("PDD lat. (M€)",    False), ("PDD sim. (M€)",   False),
-        ("Δ PDD (M€)",       True),
-        ("PV mob (M€)",      False), ("PV mob sim. (M€)", False),
-        ("Δ PV mob (M€)",    True),
+        ("VM init. (M€)",    False, False), ("VM stress. (M€)", False, False),
+        ("Impact VM (M€)",   True,  False), ("Impact VM (%)",   True,  True),
+        ("PDD lat. (M€)",    False, False), ("PDD sim. (M€)",   False, False),
+        ("Δ PDD (M€)",       True,  False), ("Δ PDD (%)",        True,  True),
+        ("PV mob (M€)",      False, False), ("PV mob sim. (M€)", False, False),
+        ("Δ PV mob (M€)",    True,  False), ("Δ PV mob (%)",     True,  True),
     ]
 
     def _header_row() -> str:
@@ -373,13 +383,12 @@ def _render_stress_html_table(df_j: pd.DataFrame, levels: list[str], sc_name: st
         return f"<thead><tr>{ths}</tr></thead>"
 
     def _data_row(level: int, labels: list, vals: tuple) -> str:
-        signed = [h[1] for h in HDR_LABELS]
         lbl_cls = f"lbl-{level}"
         tds = ""
         for i, lbl in enumerate(labels):
             indent = lbl_cls if i == level else ""
             tds += f'<td class="{indent}">{lbl}</td>'
-        tds += "".join(_td(v, signed[i]) for i, v in enumerate(vals))
+        tds += "".join(_td(v, h[1], h[2]) for v, h in zip(vals, HDR_LABELS))
         return f'<tr class="r{level}">{tds}</tr>'
 
     body = "<tbody>"
