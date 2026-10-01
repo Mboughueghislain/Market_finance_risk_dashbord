@@ -27,6 +27,7 @@ from modules.risque_spread import render_risque_spread_tab
 from modules.risque_taux import render_risque_taux_tab
 from modules.risque_action import render_risque_action_tab
 from modules.risque_immo import render_risque_immo_tab
+from modules.stress_test import render_stress_tab
 
 from modules.rapport import build_portefeuille_block_for_report
 from pandas.tseries.offsets import MonthEnd
@@ -1001,7 +1002,7 @@ with suivi_pf_tab:
         risque_spread_tab,
         risque_action_tab,
         risque_immo_tab,
-        #risque_autre_tab,
+        stress_test_tab,
     ) = st.tabs(
         [
             "Portefeuille",
@@ -1009,7 +1010,7 @@ with suivi_pf_tab:
             "Risque Spread",
             "Risque Action",
             "Risque Immobilier",
-            #"Risque Autre",
+            "🧪 Stress Tests",
         ]
     )
 
@@ -1136,6 +1137,9 @@ with suivi_pf_tab:
 
     with risque_immo_tab:
         _frag_risque_immo(df_selection, date_debut, date_fin)
+
+    with stress_test_tab:
+        render_stress_tab(df_selection, date_fin)
 
     # Risque Autre
     #with risque_autre_tab:
