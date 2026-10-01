@@ -22,7 +22,12 @@ _SAS_PROG_WIN = (
 )
 _PARAM_WIN   = r"C:\temp\param_run.txt"
 _LOG_WIN     = r"C:\temp\logSAS.txt"
-_RESULTS_WIN = r"C:\temp\stress_results"
+# Répertoire réel où SAS écrit ses JSON (partage réseau via Y:)
+_RESULTS_WIN = (
+    r"Y:\Direction des Risques\4. Risques Financiers"
+    r"\00-0-REPORTING\00 - PROD RRF\outSAS\Json"
+)
+_STRESS_JSON_NAME = "STRESS_TEST.json"
 
 # Colonnes disponibles pour le périmètre (types 3 & 4)
 _PERIM_COLS = ["LIB_EMETTEUR", "SOUS_CLASSIF_RF", "PAYS", "SECTEUR_EPS"]
@@ -93,11 +98,8 @@ def _write_param_file(scenarios: list[dict], date_sim: str) -> None:
     param = _py_path(_PARAM_WIN)
     param.parent.mkdir(parents=True, exist_ok=True)
     param.write_text(content, encoding="utf-8")
-    # Nettoie les anciens résultats avant chaque run
-    res_dir = _py_path(_RESULTS_WIN)
-    res_dir.mkdir(parents=True, exist_ok=True)
-    for old in res_dir.glob("*.json"):
-        old.unlink(missing_ok=True)
+    # Le répertoire de résultats est sur partage réseau : pas de nettoyage
+    # SAS écrase automatiquement STRESS_TEST.json à chaque run
 
 
 # =============================================================================
@@ -153,35 +155,43 @@ def _check_sas_log() -> tuple[list[str], list[str]]:
 # Chargement des JSON produits par SAS
 # =============================================================================
 
-def _list_result_jsons() -> list[Path]:
-    """Liste les JSON dans le dossier résultats en contournant le cache WSL2."""
-    if _is_wsl():
-        try:
-            result = subprocess.run(
-                ["cmd.exe", "/c", f'dir /b "{_RESULTS_WIN}\\*.json" 2>nul'],
-                capture_output=True, text=True, timeout=10,
-            )
-            names = [n.strip() for n in result.stdout.splitlines() if n.strip().lower().endswith(".json")]
-            return [_py_path(_RESULTS_WIN) / n for n in names]
-        except Exception:
-            pass
-    rdir = _py_path(_RESULTS_WIN)
-    return sorted(rdir.glob("*.json")) if rdir.exists() else []
+def _stress_json_exists_win() -> bool:
+    """Vérifie l'existence du STRESS_TEST.json via cmd.exe (contourne WSL2 et réseau)."""
+    win_path = f"{_RESULTS_WIN}\\{_STRESS_JSON_NAME}"
+    try:
+        r = subprocess.run(
+            ["cmd.exe", "/c", f'if exist "{win_path}" echo FOUND'],
+            capture_output=True, text=True, timeout=10,
+        )
+        return "FOUND" in r.stdout
+    except Exception:
+        return False
+
+
+def _read_json_via_cmd(win_path: str) -> Optional[str]:
+    """Lit le contenu d'un fichier via cmd.exe /c type (fonctionne sur partage réseau)."""
+    try:
+        r = subprocess.run(
+            ["cmd.exe", "/c", f'type "{win_path}"'],
+            capture_output=True, timeout=30,
+        )
+        return r.stdout.decode("utf-8", errors="replace")
+    except Exception:
+        return None
 
 
 def _load_stress_results() -> Optional[pd.DataFrame]:
-    files = _list_result_jsons()
-    if not files:
+    win_path = f"{_RESULTS_WIN}\\{_STRESS_JSON_NAME}"
+    content = _read_json_via_cmd(win_path)
+    if not content:
         return None
-    dfs = []
-    for f in files:
-        try:
-            df = pd.read_json(f)
-            df["_scenario"] = f.stem
-            dfs.append(df)
-        except Exception:
-            pass
-    return pd.concat(dfs, ignore_index=True) if dfs else None
+    try:
+        import io
+        df = pd.read_json(io.StringIO(content))
+        df["_scenario"] = _STRESS_JSON_NAME.replace(".json", "")
+        return df
+    except Exception:
+        return None
 
 
 # =============================================================================
@@ -436,13 +446,12 @@ def render_stress_tab(df_selection: pd.DataFrame, date_fin) -> None:
             rc = proc.returncode if proc else -1
             errors, tail = _check_sas_log()
             # SAS retourne code 1 en cas de warnings : on vérifie la présence du JSON
-            # On passe par cmd.exe pour contourner le cache WSL2
-            json_files = _list_result_jsons()
-            results_exist = bool(json_files)
+            # Via cmd.exe pour accéder au partage réseau (Y:) sans passer par WSL
+            results_exist = _stress_json_exists_win()
             st.session_state["sas_debug"] = {
                 "rc": rc,
-                "res_dir": str(_py_path(_RESULTS_WIN)),
-                "json_files_found": [str(f.name) for f in json_files],
+                "results_path": f"{_RESULTS_WIN}\\{_STRESS_JSON_NAME}",
+                "json_found": results_exist,
             }
             if not errors and results_exist:
                 st.session_state["sas_status"] = "done"
