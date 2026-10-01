@@ -420,29 +420,37 @@ def render_stress_tab(df_selection: pd.DataFrame, date_fin) -> None:
             errors, tail = _check_sas_log()
             if rc == 0 and not errors:
                 st.session_state["sas_status"] = "done"
+                st.session_state["sas_rc"] = 0
                 st.session_state["sas_errors"] = []
                 st.session_state["sas_log_tail"] = []
             else:
                 st.session_state["sas_status"] = "error"
-                st.session_state["sas_errors"] = errors or [f"SAS a retourné le code {rc}"]
+                st.session_state["sas_rc"] = rc
+                st.session_state["sas_errors"] = errors
                 st.session_state["sas_log_tail"] = tail
             st.rerun()
 
     elif status == "error":
-        st.error("❌ Erreur lors de l'exécution SAS")
-
+        rc_val    = st.session_state.get("sas_rc", -1)
         err_lines = st.session_state.get("sas_errors", [])
         tail_lines = st.session_state.get("sas_log_tail", [])
 
+        st.error(f"❌ Erreur lors de l'exécution SAS (code retour : {rc_val})")
+
         if err_lines:
-            st.markdown("**Lignes ERROR du log SAS :**")
+            st.markdown("**Lignes ERROR détectées dans le log :**")
             for e in err_lines[:20]:
                 st.code(e, language=None)
-        elif tail_lines:
-            st.markdown("**Fin du log SAS (aucune ligne ERROR détectée) :**")
-            st.code("\n".join(tail_lines), language=None)
-        else:
-            st.code("Aucune information disponible dans le log.", language=None)
+
+        if tail_lines:
+            label = "📋 Fin du log SAS" if not err_lines else "📋 Fin du log SAS (contexte)"
+            with st.expander(label, expanded=not err_lines):
+                st.code("\n".join(tail_lines), language=None)
+        elif not err_lines:
+            st.warning(
+                f"Log SAS introuvable ou vide (`{_py_path(_LOG_WIN)}`). "
+                "Vérifiez que SAS peut écrire dans `C:\\\\temp\\\\`."
+            )
 
         # Affiche le param_run.txt écrit
         param_path = _py_path(_PARAM_WIN)
